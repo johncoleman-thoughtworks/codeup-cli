@@ -1,0 +1,21 @@
+[package]
+name = "codeup-core"
+description = "Pure analysis library: scanner, dependency graph, deterministic checks, knowledge, catalogue. No CLI, no HTTP."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+ignore.workspace = true
+globset.workspace = true
+regex.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

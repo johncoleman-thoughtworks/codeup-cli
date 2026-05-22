@@ -1,0 +1,43 @@
+version: 2
+updates:
+  # Cargo dependencies (workspace-wide)
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    groups:
+      # Group async stack updates so tokio + friends bump together
+      async-stack:
+        patterns:
+          - "tokio"
+          - "tokio-*"
+          - "futures"
+          - "futures-*"
+      # Serde + its codecs in one PR
+      serde:
+        patterns:
+          - "serde"
+          - "serde_*"
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore(actions)"
+      include: scope
+    labels:
+      - dependencies
+      - github-actions
