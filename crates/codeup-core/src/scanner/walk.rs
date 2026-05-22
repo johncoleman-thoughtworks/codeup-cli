@@ -60,6 +60,24 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "!*.user",
     // Codeup itself
     "!.codeup",
+    // Generated dependency lock files. Always committed, often huge,
+    // never meaningfully analyzable as source — flagging them as
+    // oversized just spams the report.
+    "!Cargo.lock",
+    "!package-lock.json",
+    "!yarn.lock",
+    "!pnpm-lock.yaml",
+    "!npm-shrinkwrap.json",
+    "!bun.lockb",
+    "!Pipfile.lock",
+    "!poetry.lock",
+    "!uv.lock",
+    "!Gemfile.lock",
+    "!composer.lock",
+    "!go.sum",
+    "!mix.lock",
+    "!Podfile.lock",
+    "!packages.lock.json",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

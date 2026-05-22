@@ -22,10 +22,25 @@ impl Default for SizeCheckOptions {
     }
 }
 
+/// Languages that map to "actual source code" — the only files for
+/// which oversized-file is meaningful signal. Data formats (YAML / JSON /
+/// TOML), docs (markdown), and plain text all routinely exceed the warn
+/// threshold for legitimate reasons (catalogues, schemas, fixtures) and
+/// flagging them just adds noise to the report.
+fn is_source_language(lang: &str) -> bool {
+    !matches!(
+        lang,
+        "yaml" | "json" | "toml" | "markdown" | "plaintext" | "html" | "css" | "scss" | "sql"
+    )
+}
+
 pub fn oversized_files(index: &ProjectIndex, options: SizeCheckOptions, now: &str) -> Vec<Finding> {
     let mut out = Vec::new();
     for file in &index.files {
         if file.size < options.warn_bytes {
+            continue;
+        }
+        if !is_source_language(&file.language) {
             continue;
         }
         let is_critical = file.size >= options.critical_bytes;
