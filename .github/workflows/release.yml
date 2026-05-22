@@ -1,0 +1,175 @@
+# Cross-platform release builds. Triggered by pushing a tag like v0.1.0.
+#
+# The matrix targets the four runner OS/arch combos that cover ~99% of
+# GitHub Actions usage:
+#   - linux x86_64    (ubuntu-latest)        — default GitHub runners
+#   - linux aarch64   (ubuntu-24.04-arm)     — GitHub's ARM larger runners + self-hosted ARM
+#   - macos arm64     (macos-latest = M-series) — current Mac runners
+#   - macos x86_64    (macos-13)             — older Mac runners + dev machines
+#
+# Each job produces `codeup-<target>.tar.gz` containing the stripped
+# binary and a license file. The final `release` job collects every
+# artifact and attaches them all to the GitHub Release for the tag,
+# plus a shell installer (`codeup-installer.sh`) that picks the right
+# tarball for the runner's uname.
+#
+# Windows is intentionally omitted — the CLI's primary use case is
+# Linux CI runners and developer macs. Add a windows target here when
+# someone asks.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must already exist in git)"
+        required: true
+        type: string
+
+permissions:
+  contents: write   # required to attach assets to the release
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            name: codeup-x86_64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            name: codeup-aarch64-unknown-linux-gnu
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            name: codeup-aarch64-apple-darwin
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            name: codeup-x86_64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+
+      - name: Build release
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin codeup
+
+      # The release profile already strips on most targets via Cargo.toml,
+      # but run strip explicitly on macOS where the cargo `strip = true`
+      # setting historically had quirks. Linux is harmless to re-strip.
+      - name: Strip binary
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/release/codeup || true
+
+      - name: Package tarball
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/codeup dist/codeup
+          cp LICENSE dist/LICENSE
+          cp README.md dist/README.md
+          cd dist
+          tar -czf ../${{ matrix.name }}.tar.gz codeup LICENSE README.md
+          cd ..
+          # SHA256 alongside the tarball for the installer to verify.
+          shasum -a 256 ${{ matrix.name }}.tar.gz > ${{ matrix.name }}.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            ${{ matrix.name }}.tar.gz
+            ${{ matrix.name }}.tar.gz.sha256
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate installer script
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          cat > artifacts/codeup-installer.sh <<'INSTALLER'
+          #!/usr/bin/env sh
+          # codeup-cli installer. Picks the right binary for the current
+          # platform from the published GitHub release.
+          #
+          #   curl -fsSL https://github.com/johncoleman-thoughtworks/codeup-cli/releases/latest/download/codeup-installer.sh | sh
+          #
+          # Honours $CODEUP_INSTALL_DIR (default: $HOME/.local/bin) and
+          # $CODEUP_VERSION (default: latest).
+          set -eu
+
+          REPO="johncoleman-thoughtworks/codeup-cli"
+          INSTALL_DIR="${CODEUP_INSTALL_DIR:-$HOME/.local/bin}"
+          VERSION="${CODEUP_VERSION:-latest}"
+
+          OS=$(uname -s)
+          ARCH=$(uname -m)
+          case "$OS-$ARCH" in
+            Linux-x86_64)   TARGET=x86_64-unknown-linux-gnu ;;
+            Linux-aarch64)  TARGET=aarch64-unknown-linux-gnu ;;
+            Darwin-arm64)   TARGET=aarch64-apple-darwin ;;
+            Darwin-x86_64)  TARGET=x86_64-apple-darwin ;;
+            *) echo "Unsupported platform: $OS-$ARCH" >&2; exit 1 ;;
+          esac
+
+          if [ "$VERSION" = "latest" ]; then
+            URL="https://github.com/$REPO/releases/latest/download/codeup-$TARGET.tar.gz"
+          else
+            URL="https://github.com/$REPO/releases/download/$VERSION/codeup-$TARGET.tar.gz"
+          fi
+
+          mkdir -p "$INSTALL_DIR"
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+          echo "Downloading codeup ($TARGET) from $URL"
+          curl -fsSL "$URL" -o "$TMP/codeup.tar.gz"
+          tar -xzf "$TMP/codeup.tar.gz" -C "$TMP"
+          mv "$TMP/codeup" "$INSTALL_DIR/codeup"
+          chmod +x "$INSTALL_DIR/codeup"
+          echo "Installed: $INSTALL_DIR/codeup"
+          echo "Run: $INSTALL_DIR/codeup --help"
+          INSTALLER
+          chmod +x artifacts/codeup-installer.sh
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || inputs.tag }}
+          name: ${{ github.ref_name || inputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/codeup-*.tar.gz
+            artifacts/codeup-*.tar.gz.sha256
+            artifacts/codeup-installer.sh
