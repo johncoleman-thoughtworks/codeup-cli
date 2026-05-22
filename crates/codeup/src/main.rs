@@ -4,6 +4,7 @@ mod analyzer;
 mod cache;
 mod llm;
 mod runner;
+mod sarif;
 mod store;
 
 use anyhow::{Context, Result};
@@ -53,6 +54,8 @@ struct ScanArgs {
     #[arg(long, env = "CODEUP_MODEL")]
     model: Option<String>,
 
+    /// Report format: `text` (default, human summary), `sarif` (SARIF
+    /// 2.1.0 JSON for GitHub Code Scanning), or `json` (raw findings).
     #[arg(long, default_value = "text")]
     out: String,
 
@@ -131,7 +134,15 @@ async fn scan(args: ScanArgs) -> Result<()> {
     })
     .await?;
 
-    let report = render_text(&summary);
+    let report = match args.out.to_lowercase().as_str() {
+        "text" => render_text(&summary),
+        "sarif" => sarif::render(&summary.findings),
+        "json" => serde_json::to_string_pretty(&summary.findings)
+            .context("serializing findings to JSON")?,
+        other => anyhow::bail!(
+            "unknown --out format {other:?}: expected one of text | sarif | json"
+        ),
+    };
 
     if let Some(path) = &args.output {
         std::fs::write(path, &report).with_context(|| format!("writing {path:?}"))?;
