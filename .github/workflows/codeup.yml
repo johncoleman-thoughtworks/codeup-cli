@@ -2,10 +2,12 @@
 # push to main, upload the SARIF to GitHub Code Scanning so findings
 # show up as inline PR annotations and under Security → Code scanning.
 #
-# Deterministic-only (no LLM): catches cycles, layer violations and
-# oversized files without burning Anthropic credits on every PR. Wire
-# up a separate manual workflow_dispatch job later if we want the
-# Anthropic pass on demand.
+# LLM provider: auto-resolved. If the `ANTHROPIC_API_KEY` repository
+# secret is configured the scan uses Anthropic Claude; otherwise it
+# falls back to GitHub Models (`models.github.ai`) via the built-in
+# `GITHUB_TOKEN` — free for individual repos, no secret setup needed.
+# Pass `--deterministic-only` via workflow_dispatch input to skip the
+# LLM pass entirely when iterating on the deterministic checks.
 
 name: codeup
 
@@ -14,13 +16,20 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      deterministic_only:
+        description: "Skip the LLM pass (faster, no API calls)"
+        type: boolean
+        default: false
 
 # `security-events: write` is required by github/codeql-action/upload-sarif.
+# `models: read` is required for `GITHUB_TOKEN` to call GitHub Models.
 # `contents: read` is the default but we pin it explicitly so future
 # default tightening doesn't break the workflow.
 permissions:
   contents: read
   security-events: write
+  models: read
 
 jobs:
   scan:
@@ -42,14 +51,29 @@ jobs:
       - name: Build codeup (release)
         run: cargo build --release --locked
 
+      # Provider auto-resolution inside the CLI:
+      # - If ANTHROPIC_API_KEY is exported (set via repo secret below),
+      #   the scan uses Anthropic Claude.
+      # - Otherwise it falls back to GitHub Models via GITHUB_TOKEN.
+      # Both env vars are wired here; the CLI picks the first one with
+      # a value.
+      #
       # `--fail-on none` keeps CI green even when findings exist; the
       # signal lives in the SARIF upload, not in the exit code. Flip
       # this to `high` once the catalogue stabilises and we want red
       # builds on regressions.
       - name: Run codeup scan
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          DETERMINISTIC_FLAG=""
+          if [ "${{ inputs.deterministic_only || 'false' }}" = "true" ]; then
+            DETERMINISTIC_FLAG="--deterministic-only"
+          fi
           ./target/release/codeup scan . \
-            --deterministic-only \
+            $DETERMINISTIC_FLAG \
             --out sarif \
             --output codeup.sarif \
             --fail-on none

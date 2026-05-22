@@ -3,6 +3,15 @@
 use super::{anthropic, github_models, LLMClient};
 use anyhow::{anyhow, Result};
 
+// Default model picks. Anthropic stays on the latest Sonnet — quality
+// matters for the analyzer's tool-use reasoning. GitHub Models defaults
+// to `openai/gpt-4o-mini` because (a) it's free-tier-friendly so the
+// dogfood fallback costs nothing, (b) its tool-use is reliable, and
+// (c) it's definitely in the GH Models catalogue. Users wanting a
+// stronger model pass --model openai/gpt-4o or similar.
+const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
+const DEFAULT_GH_MODELS_MODEL: &str = "openai/gpt-4o-mini";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderSetting {
     Auto,
@@ -48,7 +57,7 @@ pub fn resolve(
                     "--provider anthropic requires a key. Pass --api-key or set ANTHROPIC_API_KEY."
                 )
             })?;
-            let model = model_override.unwrap_or("claude-sonnet-4-6").to_string();
+            let model = model_override.unwrap_or(DEFAULT_ANTHROPIC_MODEL).to_string();
             Ok(ResolvedProvider {
                 client: LLMClient::Anthropic(anthropic::AnthropicClient::new(key, model)?),
                 reason: "--provider anthropic".into(),
@@ -60,24 +69,24 @@ pub fn resolve(
                     "--provider github-models requires a GitHub token. Pass --api-key or set GITHUB_TOKEN."
                 )
             })?;
-            let model = model_override.unwrap_or("claude-sonnet-4").to_string();
+            let model = model_override.unwrap_or(DEFAULT_GH_MODELS_MODEL).to_string();
             Ok(ResolvedProvider {
-                client: LLMClient::GithubModels(github_models::GithubModelsClient::new(key, model)),
+                client: LLMClient::GithubModels(github_models::GithubModelsClient::new(key, model)?),
                 reason: "--provider github-models".into(),
             })
         }
         ProviderSetting::Auto => {
             if let Some(key) = anthropic_key {
-                let model = model_override.unwrap_or("claude-sonnet-4-6").to_string();
+                let model = model_override.unwrap_or(DEFAULT_ANTHROPIC_MODEL).to_string();
                 return Ok(ResolvedProvider {
                     client: LLMClient::Anthropic(anthropic::AnthropicClient::new(key, model)?),
                     reason: "auto: ANTHROPIC_API_KEY present".into(),
                 });
             }
             if let Some(token) = github_token {
-                let model = model_override.unwrap_or("claude-sonnet-4").to_string();
+                let model = model_override.unwrap_or(DEFAULT_GH_MODELS_MODEL).to_string();
                 return Ok(ResolvedProvider {
-                    client: LLMClient::GithubModels(github_models::GithubModelsClient::new(token, model)),
+                    client: LLMClient::GithubModels(github_models::GithubModelsClient::new(token, model)?),
                     reason: "auto: no Anthropic key, falling back to GITHUB_TOKEN".into(),
                 });
             }
