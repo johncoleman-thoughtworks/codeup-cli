@@ -21,6 +21,14 @@ on:
         description: "Skip the LLM pass (faster, no API calls)"
         type: boolean
         default: false
+      provider:
+        description: "Force a specific LLM provider (overrides auto-resolution)"
+        type: choice
+        default: auto
+        options:
+          - auto
+          - anthropic
+          - github-models
 
 # `security-events: write` is required by github/codeql-action/upload-sarif.
 # `models: read` is required for `GITHUB_TOKEN` to call GitHub Models.
@@ -85,12 +93,29 @@ jobs:
           if [ "${{ inputs.deterministic_only || 'false' }}" = "true" ]; then
             DETERMINISTIC_FLAG="--deterministic-only"
           fi
+
+          # Provider override from workflow_dispatch input. Default
+          # `auto` lets the CLI pick (Anthropic if the secret is set,
+          # GH Models otherwise). Choosing `github-models` explicitly is
+          # the test path — it forces the GH Models route even when an
+          # Anthropic key is configured.
+          PROVIDER="${{ inputs.provider || 'auto' }}"
+          PROVIDER_FLAG=""
+          if [ "$PROVIDER" != "auto" ]; then
+            PROVIDER_FLAG="--provider $PROVIDER"
+          fi
+
+          # Anthropic-specific model override only applies when Anthropic
+          # is the active provider. When forcing GH Models, leave the
+          # model unset so its own default (openai/gpt-4o-mini) is used.
           MODEL_FLAG=""
-          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+          if [ "$PROVIDER" != "github-models" ] && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
             MODEL_FLAG="--model claude-haiku-4-5"
           fi
+
           ./target/release/codeup scan . \
             $DETERMINISTIC_FLAG \
+            $PROVIDER_FLAG \
             $MODEL_FLAG \
             --out sarif \
             --output codeup.sarif \
