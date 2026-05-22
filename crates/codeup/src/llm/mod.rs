@@ -6,6 +6,7 @@
 pub mod anthropic;
 pub mod github_models;
 pub mod provider;
+mod retry;
 
 use anyhow::Result;
 use serde::Serialize;

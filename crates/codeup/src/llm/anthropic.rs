@@ -2,6 +2,7 @@
 //! exists, but the API is straightforward: POST to /v1/messages with a
 //! JSON body, expect a content[] array with `tool_use` / `text` blocks.
 
+use crate::llm::retry::{backoff_seconds, retry_after_seconds, should_retry, MAX_ATTEMPTS, MAX_BACKOFF_SECONDS};
 use crate::llm::{LLMAnalyzeRequest, LLMAnalyzeResponse, ReportedToolCall};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -38,12 +39,18 @@ impl AnthropicClient {
             messages: vec![Message { role: "user", content: req.user_prompt }],
         };
 
-        // Retry-on-429 with retry-after-aware backoff. Anthropic's
-        // org-level token-bucket limits (e.g. 30k input tokens/min on
-        // smaller plans) trip easily during a sustained workspace scan
-        // — without this the runner just drops every finding past the
-        // first ~10 files. 5 attempts × max 60s sleep keeps the worst
-        // case bounded.
+        // Retry loop covering both:
+        //   - 429 Too Many Requests (org-level token-bucket limits e.g.
+        //     30k input tokens/min on smaller plans — trips easily on a
+        //     sustained workspace scan).
+        //   - 5xx server errors, especially 529 overloaded_error, which
+        //     Anthropic returns under load. These are transient and
+        //     usually succeed on retry within a few seconds.
+        //
+        // Both share the same attempt budget (5) so a single call can't
+        // sit in here forever. 429 prefers the server's `Retry-After`
+        // hint; 5xx uses straight exponential backoff (no Retry-After
+        // is sent on those).
         let mut attempt = 0u32;
         let bytes = loop {
             attempt += 1;
@@ -59,15 +66,21 @@ impl AnthropicClient {
                 .context("posting to Anthropic Messages API")?;
 
             let status = resp.status();
-            if status == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt < 5 {
-                let wait = retry_after_seconds(&resp).unwrap_or_else(|| {
-                    // No retry-after header — exponential fallback,
-                    // capped: 2s, 4s, 8s, 16s.
-                    1u64 << attempt
-                });
-                let wait = wait.min(60);
+            if should_retry(status) && attempt < MAX_ATTEMPTS {
+                let wait = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                    retry_after_seconds(&resp).unwrap_or_else(|| backoff_seconds(attempt))
+                } else {
+                    // 5xx: no Retry-After expected, exponential backoff.
+                    backoff_seconds(attempt)
+                };
+                let wait = wait.min(MAX_BACKOFF_SECONDS);
+                let kind = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                    "429 rate-limit"
+                } else {
+                    "5xx server error"
+                };
                 tracing::warn!(
-                    "Anthropic 429 rate-limit; sleeping {wait}s (attempt {attempt}/5)"
+                    "Anthropic {kind} ({status}); sleeping {wait}s (attempt {attempt}/{MAX_ATTEMPTS})"
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                 continue;
@@ -142,19 +155,6 @@ enum ContentBlock {
 // Helper used elsewhere to keep the "no Anthropic key set" path tidy.
 pub fn key_from_env() -> Option<String> {
     std::env::var("ANTHROPIC_API_KEY").ok().filter(|s| !s.is_empty())
-}
-
-/// Parse the standard HTTP `Retry-After` header (seconds form). Anthropic
-/// also exposes `anthropic-ratelimit-input-tokens-reset` with an absolute
-/// timestamp, but the simple seconds form is enough for our purposes.
-fn retry_after_seconds(resp: &reqwest::Response) -> Option<u64> {
-    resp.headers()
-        .get(reqwest::header::RETRY_AFTER)?
-        .to_str()
-        .ok()?
-        .trim()
-        .parse::<u64>()
-        .ok()
 }
 
 #[cfg(test)]

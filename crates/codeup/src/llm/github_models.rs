@@ -18,6 +18,7 @@
 //!   `tool_calls[].function.arguments`, which we parse before handing
 //!   back to the shared `LLMAnalyzeResponse` type.
 
+use crate::llm::retry::{backoff_seconds, retry_after_seconds, should_retry, MAX_ATTEMPTS, MAX_BACKOFF_SECONDS};
 use crate::llm::{LLMAnalyzeRequest, LLMAnalyzeResponse, ReportedToolCall};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -65,27 +66,56 @@ impl GithubModelsClient {
             },
         };
 
-        let resp = self
-            .http
-            .post(ENDPOINT)
-            .header("authorization", format!("Bearer {}", self.api_key))
-            .header("content-type", "application/json")
-            .header("accept", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("posting to GitHub Models chat-completions API")?;
+        // Same retry shape as the Anthropic client — GH Models also
+        // imposes per-minute request limits and occasionally surfaces
+        // 5xx from upstream providers. See anthropic.rs for the
+        // rationale; the policy is identical so the two providers
+        // behave consistently when wrapped behind the LLMClient enum.
+        let mut attempt = 0u32;
+        let bytes = loop {
+            attempt += 1;
+            let resp = self
+                .http
+                .post(ENDPOINT)
+                .header("authorization", format!("Bearer {}", self.api_key))
+                .header("content-type", "application/json")
+                .header("accept", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .context("posting to GitHub Models chat-completions API")?;
 
-        let status = resp.status();
-        let bytes = resp
-            .bytes()
-            .await
-            .context("reading GitHub Models response body")?;
-        if !status.is_success() {
-            let preview = String::from_utf8_lossy(&bytes);
-            let trimmed = if preview.len() > 500 { &preview[..500] } else { &preview };
-            bail!("GitHub Models API returned {status}: {trimmed}");
-        }
+            let status = resp.status();
+            if should_retry(status) && attempt < MAX_ATTEMPTS {
+                let wait = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                    retry_after_seconds(&resp).unwrap_or_else(|| backoff_seconds(attempt))
+                } else {
+                    backoff_seconds(attempt)
+                };
+                let wait = wait.min(MAX_BACKOFF_SECONDS);
+                let kind = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                    "429 rate-limit"
+                } else {
+                    "5xx server error"
+                };
+                tracing::warn!(
+                    "GitHub Models {kind} ({status}); sleeping {wait}s (attempt {attempt}/{MAX_ATTEMPTS})"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                continue;
+            }
+
+            let bytes = resp
+                .bytes()
+                .await
+                .context("reading GitHub Models response body")?;
+            if !status.is_success() {
+                let preview = String::from_utf8_lossy(&bytes);
+                let trimmed = if preview.len() > 500 { &preview[..500] } else { &preview };
+                bail!("GitHub Models API returned {status}: {trimmed}");
+            }
+            break bytes;
+        };
         let parsed: ChatResponse = serde_json::from_slice(&bytes).with_context(|| {
             format!(
                 "decoding GitHub Models response (first 500 bytes: {})",
