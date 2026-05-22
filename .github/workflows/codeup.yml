@@ -58,6 +58,15 @@ jobs:
       # Both env vars are wired here; the CLI picks the first one with
       # a value.
       #
+      # Model: Haiku for the dogfood loop. Sonnet hits the Tier-1
+      # 30k-input-tokens-per-minute org cap on a workspace of this size
+      # and forces the retry-on-429 loop to do most of the work — Haiku
+      # has much higher per-tier caps, costs less, and the analyzer's
+      # task (single-file tool-use) is well within its capability. Drop
+      # this override once the org tier auto-bumps.
+      # CODEUP_MODEL only applies when Anthropic is the active provider;
+      # the GH Models fallback ignores it and uses its own default.
+      #
       # `--fail-on none` keeps CI green even when findings exist; the
       # signal lives in the SARIF upload, not in the exit code. Flip
       # this to `high` once the catalogue stabilises and we want red
@@ -66,14 +75,23 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only set when Anthropic is the active provider — GH Models
+          # ignores Anthropic-shaped model names and would 400. The
+          # bash logic below sets CODEUP_MODEL only if the secret is
+          # present, so the GH Models fallback gets its own default.
         run: |
           set -euo pipefail
           DETERMINISTIC_FLAG=""
           if [ "${{ inputs.deterministic_only || 'false' }}" = "true" ]; then
             DETERMINISTIC_FLAG="--deterministic-only"
           fi
+          MODEL_FLAG=""
+          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+            MODEL_FLAG="--model claude-haiku-4-5"
+          fi
           ./target/release/codeup scan . \
             $DETERMINISTIC_FLAG \
+            $MODEL_FLAG \
             --out sarif \
             --output codeup.sarif \
             --fail-on none
