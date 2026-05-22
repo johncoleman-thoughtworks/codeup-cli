@@ -2,7 +2,7 @@
 
 Architectural anti-pattern scanner for the command line. Single static binary, primarily for GitHub Actions and other CI runners, but works locally too.
 
-The same analysis core powers the [Codeup VS Code extension](https://github.com/johncoleman-thoughtworks/codeup-vscx). Findings live as YAML files under `.codeup/` so they travel with the repo and accumulate the team's decisions over time — whether produced by the editor or by CI. Both tools read and write to the contract documented in [`SCHEMA.md`](https://github.com/johncoleman-thoughtworks/codeup-vscx/blob/main/SCHEMA.md).
+The same analysis core powers the [Codeup VS Code extension](https://github.com/johncoleman-thoughtworks/codeup-vscx). Findings live as YAML files under `.codeup/` so they travel with the repo and accumulate the team's decisions over time — whether produced by the editor or by CI. Both tools read and write to the contract documented in [`SCHEMA.md`](SCHEMA.md).
 
 ## What it does
 
