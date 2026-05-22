@@ -38,24 +38,49 @@ impl AnthropicClient {
             messages: vec![Message { role: "user", content: req.user_prompt }],
         };
 
-        let resp = self
-            .http
-            .post(ENDPOINT)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", API_VERSION)
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("posting to Anthropic Messages API")?;
+        // Retry-on-429 with retry-after-aware backoff. Anthropic's
+        // org-level token-bucket limits (e.g. 30k input tokens/min on
+        // smaller plans) trip easily during a sustained workspace scan
+        // — without this the runner just drops every finding past the
+        // first ~10 files. 5 attempts × max 60s sleep keeps the worst
+        // case bounded.
+        let mut attempt = 0u32;
+        let bytes = loop {
+            attempt += 1;
+            let resp = self
+                .http
+                .post(ENDPOINT)
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", API_VERSION)
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .context("posting to Anthropic Messages API")?;
 
-        let status = resp.status();
-        let bytes = resp.bytes().await.context("reading Anthropic response body")?;
-        if !status.is_success() {
-            let preview = String::from_utf8_lossy(&bytes);
-            let trimmed = if preview.len() > 500 { &preview[..500] } else { &preview };
-            bail!("Anthropic API returned {status}: {trimmed}");
-        }
+            let status = resp.status();
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt < 5 {
+                let wait = retry_after_seconds(&resp).unwrap_or_else(|| {
+                    // No retry-after header — exponential fallback,
+                    // capped: 2s, 4s, 8s, 16s.
+                    1u64 << attempt
+                });
+                let wait = wait.min(60);
+                tracing::warn!(
+                    "Anthropic 429 rate-limit; sleeping {wait}s (attempt {attempt}/5)"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                continue;
+            }
+
+            let bytes = resp.bytes().await.context("reading Anthropic response body")?;
+            if !status.is_success() {
+                let preview = String::from_utf8_lossy(&bytes);
+                let trimmed = if preview.len() > 500 { &preview[..500] } else { &preview };
+                bail!("Anthropic API returned {status}: {trimmed}");
+            }
+            break bytes;
+        };
         let parsed: MessagesResponse = serde_json::from_slice(&bytes)
             .with_context(|| format!("decoding Anthropic response (first 500 bytes: {})", String::from_utf8_lossy(&bytes).chars().take(500).collect::<String>()))?;
 
@@ -117,6 +142,19 @@ enum ContentBlock {
 // Helper used elsewhere to keep the "no Anthropic key set" path tidy.
 pub fn key_from_env() -> Option<String> {
     std::env::var("ANTHROPIC_API_KEY").ok().filter(|s| !s.is_empty())
+}
+
+/// Parse the standard HTTP `Retry-After` header (seconds form). Anthropic
+/// also exposes `anthropic-ratelimit-input-tokens-reset` with an absolute
+/// timestamp, but the simple seconds form is enough for our purposes.
+fn retry_after_seconds(resp: &reqwest::Response) -> Option<u64> {
+    resp.headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
 }
 
 #[cfg(test)]
