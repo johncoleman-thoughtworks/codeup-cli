@@ -54,7 +54,9 @@ struct Driver<'a> {
 #[derive(Serialize)]
 struct Rule<'a> {
     id: &'a str,
-    name: &'a str,
+    // Per SARIF §3.49.7, `name` must be a human-friendly identifier
+    // *distinct* from `id`. Our `id` is already the human-readable
+    // category slug, so we omit `name` to avoid SARIF1001 warnings.
     #[serde(rename = "shortDescription")]
     short_description: Text,
     #[serde(rename = "defaultConfiguration")]
@@ -142,7 +144,6 @@ pub fn render(findings: &[Finding]) -> String {
         .iter()
         .map(|(cat, sev)| Rule {
             id: cat,
-            name: cat,
             short_description: Text { text: humanize_category(cat) },
             default_configuration: DefaultConfig { level: severity_level(*sev) },
         })
