@@ -1,0 +1,73 @@
+# Dogfood: run the codeup CLI against its own source on every PR and
+# push to main, upload the SARIF to GitHub Code Scanning so findings
+# show up as inline PR annotations and under Security → Code scanning.
+#
+# Deterministic-only (no LLM): catches cycles, layer violations and
+# oversized files without burning Anthropic credits on every PR. Wire
+# up a separate manual workflow_dispatch job later if we want the
+# Anthropic pass on demand.
+
+name: codeup
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# `security-events: write` is required by github/codeql-action/upload-sarif.
+# `contents: read` is the default but we pin it explicitly so future
+# default tightening doesn't break the workflow.
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    name: codeup self-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Scope by workflow so unrelated workflows don't share the key.
+          shared-key: codeup-self-scan
+
+      - name: Build codeup (release)
+        run: cargo build --release --locked
+
+      # `--fail-on none` keeps CI green even when findings exist; the
+      # signal lives in the SARIF upload, not in the exit code. Flip
+      # this to `high` once the catalogue stabilises and we want red
+      # builds on regressions.
+      - name: Run codeup scan
+        run: |
+          ./target/release/codeup scan . \
+            --deterministic-only \
+            --out sarif \
+            --output codeup.sarif \
+            --fail-on none
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: codeup.sarif
+          # `category` lets Code Scanning track results per-tool so
+          # multiple analysers don't overwrite each other.
+          category: codeup
+
+      # Belt-and-braces: also attach the raw SARIF as a build artifact
+      # so we can diff between runs even before Code Scanning ingests it.
+      - name: Archive SARIF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeup-sarif
+          path: codeup.sarif
+          retention-days: 14
