@@ -133,8 +133,94 @@ impl FindingsStore {
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.yaml", finding.id));
         let body = serde_yaml::to_string(finding)?;
+        let body = quote_timestamps_in_yaml(&body);
         std::fs::write(&path, body)?;
         Ok(())
+    }
+}
+
+/// Force quoted-string emission for timestamp fields.
+///
+/// serde_yaml emits ISO-8601 strings as plain (unquoted) scalars. The
+/// TS extension reads findings with `js-yaml` v4 + DEFAULT_SCHEMA, which
+/// auto-types plain ISO-8601 strings into `!!timestamp` (a JS Date) and
+/// the validator then rejects them with "must be a non-empty string".
+///
+/// SCHEMA.md mandates quoted timestamps as the wire form. We post-process
+/// the YAML to wrap the value of any known timestamp key in double quotes
+/// if it isn't already quoted. Cheap line scan — no regex dep.
+fn quote_timestamps_in_yaml(yaml: &str) -> String {
+    const KEYS: &[&str] = &["detectedAt", "dismissedAt", "confirmedAt", "timestamp"];
+    let mut out = String::with_capacity(yaml.len() + 64);
+    for line in yaml.split_inclusive('\n') {
+        // Strip the trailing newline (if any) for parsing, re-add at the end.
+        let (content, newline) = match line.strip_suffix('\n') {
+            Some(rest) => (rest, "\n"),
+            None => (line, ""),
+        };
+        // Find leading whitespace + optional "- " list marker.
+        let trimmed = content.trim_start();
+        if !trimmed.contains(':') {
+            out.push_str(line);
+            continue;
+        }
+        // Allow either "key: value" or "- key: value".
+        let after_dash = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+        let Some((key, value)) = after_dash.split_once(':') else {
+            out.push_str(line);
+            continue;
+        };
+        let key = key.trim();
+        if !KEYS.contains(&key) {
+            out.push_str(line);
+            continue;
+        }
+        let value = value.trim();
+        if value.is_empty() || value.starts_with('"') || value.starts_with('\'') {
+            out.push_str(line);
+            continue;
+        }
+        // Rebuild the line preserving prefix exactly.
+        let prefix_len = content.len() - trimmed.len();
+        let prefix = &content[..prefix_len];
+        let dash = if trimmed.starts_with("- ") { "- " } else { "" };
+        out.push_str(prefix);
+        out.push_str(dash);
+        out.push_str(key);
+        out.push_str(": \"");
+        out.push_str(value);
+        out.push('"');
+        out.push_str(newline);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quote_timestamps_in_yaml;
+
+    #[test]
+    fn quotes_detected_at_and_history_timestamps() {
+        let input = "schemaVersion: 1\n\
+detectedAt: 2026-05-22T14:32:11.123Z\n\
+history:\n\
+- timestamp: 2026-05-22T14:32:11.123Z\n  event: detected\n";
+        let out = quote_timestamps_in_yaml(input);
+        assert!(out.contains("detectedAt: \"2026-05-22T14:32:11.123Z\""), "got: {out}");
+        assert!(out.contains("- timestamp: \"2026-05-22T14:32:11.123Z\""), "got: {out}");
+        assert!(out.contains("event: detected"));
+    }
+
+    #[test]
+    fn leaves_already_quoted_values_alone() {
+        let input = "detectedAt: \"2026-05-22T14:32:11.123Z\"\n";
+        assert_eq!(quote_timestamps_in_yaml(input), input);
+    }
+
+    #[test]
+    fn ignores_non_timestamp_keys() {
+        let input = "category: long-method\nseverity: high\n";
+        assert_eq!(quote_timestamps_in_yaml(input), input);
     }
 }
 

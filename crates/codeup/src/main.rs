@@ -215,18 +215,21 @@ fn render_text(summary: &runner::RunSummary) -> String {
 }
 
 fn chrono_now_iso() -> String {
-    // Plain ISO-8601-Z without pulling chrono. Sub-second precision is
-    // unnecessary; the value just needs to be monotonic across a run.
+    // Plain ISO-8601-Z without pulling chrono. Millisecond precision is
+    // required by the shared SCHEMA.md so the TS extension's js-yaml
+    // round-trips the value cleanly (and ms is enough to keep timestamps
+    // monotonic across a fast scan).
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let secs = now.as_secs() as i64;
-    
-    unix_to_iso(secs)
+    let millis = now.subsec_millis();
+    unix_to_iso(secs, millis)
 }
 
-fn unix_to_iso(secs: i64) -> String {
-    // Cheap ISO formatter. Good enough for timestamps in YAML.
+fn unix_to_iso(secs: i64, millis: u32) -> String {
+    // Cheap ISO formatter. Good enough for timestamps in YAML. Emits
+    // `YYYY-MM-DDTHH:MM:SS.mmmZ` per .codeup SCHEMA.md.
     let days = secs.div_euclid(86_400);
     let mut rem = secs.rem_euclid(86_400);
     let hour = rem / 3600;
@@ -234,7 +237,7 @@ fn unix_to_iso(secs: i64) -> String {
     let minute = rem / 60;
     let second = rem % 60;
     let (year, month, day) = days_to_ymd(days);
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
 }
 
 fn days_to_ymd(days: i64) -> (i64, u32, u32) {
