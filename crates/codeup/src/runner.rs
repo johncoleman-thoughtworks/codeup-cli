@@ -102,7 +102,7 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
                 let bytes = match std::fs::read(opts.root.join(&entry.path)) {
                     Ok(b) => b,
                     Err(e) => {
-                        tracing::warn!("{}: read failed: {e}", entry.path);
+                        tracing::warn!("{}: read failed: {e:#}", entry.path);
                         continue;
                     }
                 };
@@ -139,7 +139,12 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("{}: analyze failed: {e}", entry.path);
+                        // `{e:#}` walks anyhow's source chain so the HTTP /
+                        // provider context isn't swallowed — without this
+                        // the user just sees "LLM analyze call" and has no
+                        // signal whether the issue is auth, model name,
+                        // rate-limit, or schema decode.
+                        tracing::warn!("{}: analyze failed: {e:#}", entry.path);
                     }
                 }
             }
