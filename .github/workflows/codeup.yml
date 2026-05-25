@@ -122,7 +122,7 @@ jobs:
             --fail-on none
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: codeup.sarif
           # `category` lets Code Scanning track results per-tool so
