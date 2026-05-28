@@ -4,6 +4,17 @@ All notable changes to the Codeup CLI are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 0.2.1 — 2026-05-28
+
+### Added
+
+- **One-line installer.** `scripts/install.sh` (also published as `codeup-installer.sh` on each release) downloads the right prebuilt binary for your platform, verifies its SHA-256, installs to `$HOME/.local/bin`, and offers to add it to `PATH`. Falls back to a source build via `--from-source` or automatically on unsupported platforms.
+
+### Changed
+
+- Filled in help text for previously undocumented CLI flags (`--verbose`, `--quiet`, `--provider`, `--model`, `--output`, `--deterministic-only`, `--max-cost`, `--fail-on`). `codeup scan --help` now describes every option.
+- Release workflow now copies `scripts/install.sh` into release assets instead of generating a separate installer inline, removing a drift source.
+
 ## 0.2.0 — 2026-05-28
 
 ### Added

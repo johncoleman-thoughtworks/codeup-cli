@@ -22,9 +22,11 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 
+    /// Increase log verbosity (repeat for more: `-v` info, `-vv` debug, `-vvv` trace).
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
 
+    /// Suppress all log output except errors. Wins over `--verbose`.
     #[arg(short, long, global = true)]
     quiet: bool,
 }
@@ -42,9 +44,13 @@ enum Command {
 
 #[derive(clap::Args, Debug)]
 struct ScanArgs {
+    /// Workspace root to scan. Defaults to the current directory.
     #[arg(default_value = ".")]
     path: std::path::PathBuf,
 
+    /// LLM provider: `auto` (default), `anthropic`, or `github-models`.
+    /// `auto` picks Anthropic when `ANTHROPIC_API_KEY` is set, else
+    /// GitHub Models when `GITHUB_TOKEN` is set.
     #[arg(long, env = "CODEUP_PROVIDER")]
     provider: Option<String>,
 
@@ -62,6 +68,10 @@ struct ScanArgs {
     #[arg(long, env = "GITHUB_TOKEN", hide_env_values = true)]
     github_token: Option<String>,
 
+    /// Model identifier passed to the active provider. Anthropic uses
+    /// names like `claude-sonnet-4-5` or `claude-haiku-4-5`; GitHub
+    /// Models ignores this and uses its own default. Leave unset to
+    /// take the provider's default.
     #[arg(long, env = "CODEUP_MODEL")]
     model: Option<String>,
 
@@ -70,15 +80,26 @@ struct ScanArgs {
     #[arg(long, default_value = "text")]
     out: String,
 
+    /// Write the report to this file instead of stdout. The format is
+    /// determined by `--out`, not by the file extension.
     #[arg(long)]
     output: Option<std::path::PathBuf>,
 
+    /// Skip the LLM pass entirely. Only the deterministic checks
+    /// (import cycles, layer violations, oversized files) run. Useful
+    /// when no provider credential is available or to iterate quickly
+    /// without API cost.
     #[arg(long)]
     deterministic_only: bool,
 
+    /// Soft USD budget for the LLM pass. On local runs the scan prompts
+    /// before exceeding this; on CI it serves as a documented ceiling.
     #[arg(long, default_value_t = 5.0)]
     max_cost: f64,
 
+    /// Minimum severity that causes a non-zero exit: `none`, `low`,
+    /// `medium`, or `high` (default). Use `none` to keep CI green
+    /// while still surfacing findings via SARIF.
     #[arg(long, default_value = "high")]
     fail_on: String,
 }
