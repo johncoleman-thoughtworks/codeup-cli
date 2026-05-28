@@ -180,13 +180,14 @@ checksum = "0e78417baa3b3114dc0e95e7357389a249c4da97c3c2b540700079db6171bfd7"
 
 [[package]]
 name = "codeup"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
  "codeup-core",
  "futures",
  "hex",
+ "libc",
  "reqwest",
  "serde",
  "serde_json",
@@ -200,7 +201,7 @@ dependencies = [
 
 [[package]]
 name = "codeup-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "globset",
  "hex",

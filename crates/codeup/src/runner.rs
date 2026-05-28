@@ -165,7 +165,11 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
         root: opts.root.to_path_buf(),
         index,
         graph,
-        findings: store.all().cloned().collect(),
+        // Security: only emit findings the current run actually re-detected.
+        // Persisted-only YAML files (potentially planted by a malicious PR)
+        // are state, not authoritative output — they don't reach SARIF or
+        // the --fail-on gate.
+        findings: store.produced_by_this_run().cloned().collect(),
         cycle_count,
         oversized_count,
         layer_violation_count,

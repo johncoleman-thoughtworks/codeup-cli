@@ -73,7 +73,8 @@ All settings can be passed as flags or environment variables:
 | Flag | Env var | Default | Notes |
 |---|---|---|---|
 | `--provider` | `CODEUP_PROVIDER` | `auto` | `auto`, `anthropic`, or `github-models`. |
-| `--api-key` | `ANTHROPIC_API_KEY` or `GITHUB_TOKEN` | — | Highest precedence is the flag; env vars are read per-provider. |
+| `--anthropic-api-key` | `ANTHROPIC_API_KEY` | — | Used only when the active provider is `anthropic`. Never substituted into another provider's credential slot. |
+| `--github-token` | `GITHUB_TOKEN` | — | Used only when the active provider is `github-models`. Never substituted into another provider's credential slot. |
 | `--model` | `CODEUP_MODEL` | `claude-sonnet-4-6` (Anthropic) or `openai/gpt-4o-mini` (GH Models) | Must be a valid model id for the active provider. |
 | `--out` | — | `text` | `text`, `sarif`, or `json`. |
 | `--output` | — | stdout | File path. When set, writes the formatted report to file instead of stdout. |

@@ -48,8 +48,19 @@ struct ScanArgs {
     #[arg(long, env = "CODEUP_PROVIDER")]
     provider: Option<String>,
 
+    /// Anthropic API key. Used only when the active provider is
+    /// `anthropic` (or `auto` and a key is present). Never substituted
+    /// into another provider's credential slot — see also
+    /// `--github-token`.
     #[arg(long, env = "ANTHROPIC_API_KEY", hide_env_values = true)]
-    api_key: Option<String>,
+    anthropic_api_key: Option<String>,
+
+    /// GitHub token for the GitHub Models endpoint. Used only when the
+    /// active provider is `github-models` (or `auto` and no Anthropic
+    /// key is present). Never substituted into another provider's
+    /// credential slot — see also `--anthropic-api-key`.
+    #[arg(long, env = "GITHUB_TOKEN", hide_env_values = true)]
+    github_token: Option<String>,
 
     #[arg(long, env = "CODEUP_MODEL")]
     model: Option<String>,
@@ -108,7 +119,12 @@ async fn scan(args: ScanArgs) -> Result<()> {
     let client = if args.deterministic_only {
         None
     } else {
-        let resolved = match resolve(setting, args.api_key.as_deref(), args.model.as_deref()) {
+        let resolved = match resolve(
+            setting,
+            args.anthropic_api_key.as_deref(),
+            args.github_token.as_deref(),
+            args.model.as_deref(),
+        ) {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!("LLM provider unavailable: {e}. Falling back to --deterministic-only.");

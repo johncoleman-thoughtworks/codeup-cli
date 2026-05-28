@@ -109,7 +109,7 @@ pub async fn analyze_file(
     );
 
     let relevant = relevant_for(&entry.path, ctx.knowledge);
-    let reported = if let Some(hit) = ctx.cache.get(&cache_key) {
+    let reported_raw = if let Some(hit) = ctx.cache.get(&cache_key) {
         hit.findings
     } else {
         let system_prompt = build_system_prompt(&patterns, !neighbors.is_empty(), &relevant);
@@ -134,6 +134,16 @@ pub async fn analyze_file(
         ctx.cache.put(&cache_key, reported.clone(), now.to_string())?;
         reported
     };
+
+    // Security: re-validate on every ingress path, including cache hits.
+    // A poisoned cache entry with a traversal-bearing `category` (e.g.
+    // "../../tmp/pwn") would otherwise flow into stable_id and end up
+    // as the filename in FindingsStore::save. Gate the use site, not
+    // the production site, so every path passes through the same check.
+    let reported: Vec<ReportedFinding> = reported_raw
+        .into_iter()
+        .filter_map(|r| revalidate_cached(r, &patterns))
+        .collect();
 
     let findings: Vec<Finding> = reported
         .into_iter()
@@ -167,6 +177,31 @@ fn neighbors_cache_key(neighbors: &[NeighborFile]) -> String {
     let mut h = Sha256::new();
     h.update(blob.as_bytes());
     hex::encode(h.finalize())[..16].to_string()
+}
+
+/// Re-check an already-typed ReportedFinding (e.g. from a cache entry)
+/// against the catalogue allowlist. Returns None if the entry is unsafe
+/// to use — typically because `category` is not a known pattern id, which
+/// would let attacker-controlled text reach stable_id and become part of
+/// a filesystem path. Apply at every ingress path (cache hit, replay,
+/// rehydrate from disk) — not just the live LLM response.
+fn revalidate_cached(r: ReportedFinding, patterns: &[&CataloguePattern]) -> Option<ReportedFinding> {
+    if !patterns.iter().any(|p| p.id == r.category) {
+        return None;
+    }
+    if !matches!(r.severity.as_str(), "low" | "medium" | "high") {
+        return None;
+    }
+    if r.line == 0 {
+        return None;
+    }
+    if r.explanation.is_empty() {
+        return None;
+    }
+    if !r.confidence.is_finite() {
+        return None;
+    }
+    Some(r)
 }
 
 fn validate_reported(input: &serde_json::Value, patterns: &[&CataloguePattern]) -> Option<ReportedFinding> {
@@ -249,7 +284,20 @@ fn make_finding(entry: &FileEntry, r: ReportedFinding, model: &str, now: &str) -
     }
 }
 
-fn stable_id(file: &str, category: &str, line: u32) -> String {
+/// Greatest byte offset `<= max` that lies on a UTF-8 char boundary.
+/// Equivalent to nightly `str::floor_char_boundary(max)`.
+fn truncate_to_char_boundary(s: &str, max: usize) -> usize {
+    if max >= s.len() {
+        return s.len();
+    }
+    let mut cut = max;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    cut
+}
+
+pub fn stable_id(file: &str, category: &str, line: u32) -> String {
     let mut h = Sha256::new();
     h.update(format!("{file}:{category}:{line}").as_bytes());
     let hex = hex::encode(h.finalize());
@@ -318,7 +366,13 @@ fn build_user_prompt(entry: &FileEntry, text: &str, neighbors: &[NeighborFile]) 
         lines.push("--- NEIGHBOR FILES (context only — do not emit findings about these) ---".into());
         for n in neighbors {
             let snippet = if n.text.len() > MAX_NEIGHBOR_CHARS {
-                let mut s = n.text[..MAX_NEIGHBOR_CHARS].to_string();
+                // Snap to a char boundary so we never slice through a
+                // multi-byte UTF-8 codepoint. Slicing by byte index alone
+                // panics on input where the codepoint at MAX_NEIGHBOR_CHARS
+                // is non-ASCII — a deterministic attacker-trigger that
+                // would terminate the whole scan under `panic = abort`.
+                let cut = truncate_to_char_boundary(&n.text, MAX_NEIGHBOR_CHARS);
+                let mut s = n.text[..cut].to_string();
                 s.push_str("\n... (truncated)");
                 s
             } else {
@@ -427,6 +481,54 @@ mod tests {
     #[test]
     fn neighbors_cache_key_empty_when_no_neighbors() {
         assert_eq!(neighbors_cache_key(&[]), "");
+    }
+
+    #[test]
+    fn truncate_to_char_boundary_safe_on_multi_byte_input() {
+        // 7999 ASCII bytes followed by 🦀 (4 UTF-8 bytes). Byte 8000
+        // sits inside the codepoint.
+        let mut s = "a".repeat(7999);
+        s.push('🦀');
+        let cut = truncate_to_char_boundary(&s, 8000);
+        // Must not panic on the slice, and must produce valid UTF-8.
+        let _ = &s[..cut];
+        // The cut should be at most 8000 and either at 7999 (before 🦀)
+        // or 8003 (after 🦀, if max happened to coincide with the next
+        // boundary — not the case for max=8000).
+        assert!(cut <= 8000);
+        assert!(s.is_char_boundary(cut));
+    }
+
+    #[test]
+    fn revalidate_cached_rejects_unknown_category() {
+        let pats = [pat("long-method")];
+        let refs: Vec<&CataloguePattern> = pats.iter().collect();
+        let bad = ReportedFinding {
+            category: "../../tmp/pwn".into(),
+            severity: "high".into(),
+            line: 1,
+            end_line: None,
+            explanation: "x".into(),
+            suggested_remediation: None,
+            confidence: 1.0,
+        };
+        assert!(revalidate_cached(bad, &refs).is_none());
+    }
+
+    #[test]
+    fn revalidate_cached_accepts_known_category() {
+        let pats = [pat("long-method")];
+        let refs: Vec<&CataloguePattern> = pats.iter().collect();
+        let ok = ReportedFinding {
+            category: "long-method".into(),
+            severity: "high".into(),
+            line: 5,
+            end_line: None,
+            explanation: "x".into(),
+            suggested_remediation: None,
+            confidence: 1.0,
+        };
+        assert!(revalidate_cached(ok, &refs).is_some());
     }
 
     #[test]

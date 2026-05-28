@@ -27,3 +27,6 @@ thiserror.workspace = true
 futures.workspace = true
 sha2.workspace = true
 hex.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

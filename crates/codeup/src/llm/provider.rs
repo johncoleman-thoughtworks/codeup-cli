@@ -35,43 +35,55 @@ pub struct ResolvedProvider {
     pub reason: String,
 }
 
-/// Resolve a provider given the CLI flags + environment. `cli_api_key`
-/// is the explicit --api-key value (highest precedence); env vars are
-/// the fallback.
+/// Typed credential slots. Each variant can only be constructed with the
+/// matching key — the provider resolver never silently substitutes one
+/// for the other, so an ANTHROPIC_API_KEY can never end up in the
+/// Authorization header of a GitHub Models call.
+#[derive(Debug, Clone)]
+pub struct AnthropicKey(pub String);
+
+#[derive(Debug, Clone)]
+pub struct GitHubToken(pub String);
+
+/// Resolve a provider given the CLI flags + environment. Each provider's
+/// credential is resolved from its own typed slot — there is deliberately
+/// no shared fallback that would let a key for one destination be sent
+/// to another. (Mitigates credential cross-vendor leakage.)
 pub fn resolve(
     setting: ProviderSetting,
-    cli_api_key: Option<&str>,
+    anthropic_key: Option<&str>,
+    github_token: Option<&str>,
     model_override: Option<&str>,
 ) -> Result<ResolvedProvider> {
-    let anthropic_key = cli_api_key
-        .map(str::to_string)
-        .or_else(anthropic::key_from_env);
-    let github_token = cli_api_key
-        .map(str::to_string)
-        .or_else(github_models::token_from_env);
+    let anthropic_key: Option<AnthropicKey> = anthropic_key
+        .map(|s| AnthropicKey(s.to_string()))
+        .or_else(|| anthropic::key_from_env().map(AnthropicKey));
+    let github_token: Option<GitHubToken> = github_token
+        .map(|s| GitHubToken(s.to_string()))
+        .or_else(|| github_models::token_from_env().map(GitHubToken));
 
     match setting {
         ProviderSetting::Anthropic => {
             let key = anthropic_key.ok_or_else(|| {
                 anyhow!(
-                    "--provider anthropic requires a key. Pass --api-key or set ANTHROPIC_API_KEY."
+                    "--provider anthropic requires an Anthropic key. Pass --anthropic-api-key or set ANTHROPIC_API_KEY. (GITHUB_TOKEN is not accepted here.)"
                 )
             })?;
             let model = model_override.unwrap_or(DEFAULT_ANTHROPIC_MODEL).to_string();
             Ok(ResolvedProvider {
-                client: LLMClient::Anthropic(anthropic::AnthropicClient::new(key, model)?),
+                client: LLMClient::Anthropic(anthropic::AnthropicClient::new(key.0, model)?),
                 reason: "--provider anthropic".into(),
             })
         }
         ProviderSetting::GithubModels => {
-            let key = github_token.ok_or_else(|| {
+            let token = github_token.ok_or_else(|| {
                 anyhow!(
-                    "--provider github-models requires a GitHub token. Pass --api-key or set GITHUB_TOKEN."
+                    "--provider github-models requires a GitHub token. Pass --github-token or set GITHUB_TOKEN. (ANTHROPIC_API_KEY is not accepted here.)"
                 )
             })?;
             let model = model_override.unwrap_or(DEFAULT_GH_MODELS_MODEL).to_string();
             Ok(ResolvedProvider {
-                client: LLMClient::GithubModels(github_models::GithubModelsClient::new(key, model)?),
+                client: LLMClient::GithubModels(github_models::GithubModelsClient::new(token.0, model)?),
                 reason: "--provider github-models".into(),
             })
         }
@@ -79,19 +91,19 @@ pub fn resolve(
             if let Some(key) = anthropic_key {
                 let model = model_override.unwrap_or(DEFAULT_ANTHROPIC_MODEL).to_string();
                 return Ok(ResolvedProvider {
-                    client: LLMClient::Anthropic(anthropic::AnthropicClient::new(key, model)?),
+                    client: LLMClient::Anthropic(anthropic::AnthropicClient::new(key.0, model)?),
                     reason: "auto: ANTHROPIC_API_KEY present".into(),
                 });
             }
             if let Some(token) = github_token {
                 let model = model_override.unwrap_or(DEFAULT_GH_MODELS_MODEL).to_string();
                 return Ok(ResolvedProvider {
-                    client: LLMClient::GithubModels(github_models::GithubModelsClient::new(token, model)?),
+                    client: LLMClient::GithubModels(github_models::GithubModelsClient::new(token.0, model)?),
                     reason: "auto: no Anthropic key, falling back to GITHUB_TOKEN".into(),
                 });
             }
             Err(anyhow!(
-                "No LLM credentials found. Set ANTHROPIC_API_KEY, set GITHUB_TOKEN, or pass --api-key explicitly. Use --deterministic-only to skip the LLM pass."
+                "No LLM credentials found. Set ANTHROPIC_API_KEY (or --anthropic-api-key), set GITHUB_TOKEN (or --github-token), or use --deterministic-only to skip the LLM pass."
             ))
         }
     }

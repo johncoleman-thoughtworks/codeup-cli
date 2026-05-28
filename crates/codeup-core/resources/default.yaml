@@ -431,6 +431,51 @@ patterns:
       exception propagate (or rethrow after logging) so the orchestrator
       / circuit breaker / health check can react.
 
+  - id: log-and-rethrow-cargo-cult
+    name: Log-and-Rethrow at Every Layer
+    languages: [java, kotlin, scala, csharp, typescript, typescriptreact, javascript, python, ruby, go]
+    defaultSeverity: low
+    hint: |
+      An exception is caught only to be logged and immediately
+      rethrown — the catch block does no recovery, no translation,
+      no enrichment, no decision; it logs and re-raises (or wraps
+      and re-raises preserving the cause). The pattern repeats at
+      several layers between the originating call and the
+      top-level handler.
+
+      The intent is "make sure failures are visible," but a
+      global / framework / middleware handler at the top of the
+      stack already logs unhandled exceptions with full context.
+      The intermediate logging therefore produces noise
+      (the same failure logged N times, often with different
+      severities and partial stacks), clutters the call sites
+      with try/catch wrappers that protect nothing, and makes
+      it harder to find the one log entry that matters.
+
+      Form-independent signals:
+        - A `catch` clause whose body is exclusively a logging
+          call followed by `throw`, `throw ex`, or `throw new
+          Wrapper(..., cause)` with no other behaviour.
+        - The pattern appears in multiple layers between the
+          throwing code and the request-scope / process-scope
+          handler.
+        - A framework middleware, ASP.NET / Spring exception
+          filter, Express error handler, etc. is already
+          configured to log unhandled exceptions.
+
+      Reasoning step before reporting: trace upward from the
+      catch. Is there already a handler that will log this
+      exception with comparable context? If yes, and the
+      intermediate catch adds nothing else, REPORT.
+
+      Refactor direction: delete the intermediate try / catch
+      and let the exception propagate to the existing global
+      handler. Where contextual information is genuinely useful
+      (a request id, an entity key only known at this layer),
+      attach it as exception data / MDC / structured context
+      rather than emitting a separate log line, so the single
+      top-level log entry carries the full picture.
+
   - id: implicit-ambient-context
     name: Implicit Ambient Context
     languages: [typescript, typescriptreact, javascript, java, csharp, kotlin, python, scala]
@@ -1184,3 +1229,516 @@ patterns:
       provides — a custom expression language, a rules engine no one
       asked for, a plugin framework with one plugin. Use the platform's
       mechanisms unless requirements actually justify a new one.
+
+  # ─── Code security ─────────────────────────────────────────────────────
+
+  - id: untrusted-input-in-interpreting-context
+    name: Untrusted Input Rendered Into an Interpreting Context
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust, php]
+    defaultSeverity: high
+    hint: |
+      Data that crosses a trust boundary into the program — files
+      loaded from disk, fields from a network request, model output,
+      values from a configuration store, rows from a database
+      populated by other tenants — is interpolated into a string
+      that will be parsed, rendered, or executed by something
+      downstream: a query language, a templating engine, a markup
+      renderer with active features, a shell, an `eval`-like
+      interpreter, a serialized command. The interpolation uses
+      concatenation or naive string substitution rather than the
+      parameterised / escaped API the sink provides, so any
+      structure inside the untrusted value (quotes, separators,
+      markup directives, control characters) is interpreted as
+      structure of the outer language.
+
+      Form-independent signals:
+        - The string being built mixes literal syntax with values
+          whose lineage traces to outside the trust boundary.
+        - The downstream consumer treats the result as a *language*
+          (it parses, dispatches, renders, or executes) rather than
+          as opaque data.
+        - An escaped or parameterised API exists for this sink but
+          the code does not use it.
+
+      Reasoning step before reporting: name the outer language
+      (SQL, HTML, shell, markup, query DSL, a serialisation that
+      will be executed) and name the source of each interpolated
+      value. If any value reaches the sink without being neutralised
+      for that specific language, REPORT and quote both the source
+      and the sink.
+
+      Refactor direction: use the sink's safe API — parameterised
+      queries, prepared statements, structured argv arrays,
+      context-aware encoders, configurable renderer trust modes
+      with allowlists. Where no such API exists, normalise to a
+      strict character allowlist before interpolation. Defence in
+      depth: refuse the operation if the untrusted value contains
+      structural characters the outer language cares about.
+
+  - id: untrusted-input-as-resource-locator
+    name: Untrusted Input Used as a Resource Locator
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust, php]
+    defaultSeverity: high
+    hint: |
+      A value that crosses a trust boundary is used — directly or
+      after joining with a fixed prefix — to choose a filesystem
+      path, a URL, a database key, a process to launch, or any
+      other handle that addresses a resource. The chooser
+      (`join`, `resolve`, `concat`) collapses traversal segments
+      silently, and no post-resolution check confirms the result
+      stays inside the intended container. The attacker therefore
+      controls which resource the program acts on, even though the
+      sink itself ("write a file", "open a document", "fetch a
+      URL") looks innocuous in isolation.
+
+      The risk is symmetric: traversal out of a write-base lets
+      the attacker overwrite arbitrary destinations; traversal out
+      of a read-base lets the attacker exfiltrate sensitive
+      sources. Even "open in editor" leaks file contents to
+      anything observing the active view.
+
+      Form-independent signals:
+        - A field that should be an opaque identifier or a confined
+          relative path is validated only by type / non-emptiness.
+        - The locator is composed with a join/resolve function that
+          normalises `..` (or by string concatenation, which does
+          not, leading to a different but related failure).
+        - Between resolution and the sink call there is no
+          containment check comparing the resolved location
+          against the intended base.
+        - The sink runs with the privileges of the calling user,
+          not a restricted sandbox account.
+
+      Mandatory reasoning step before reporting: identify (a) the
+      trust boundary the value crossed and (b) the resource sink
+      it ultimately reaches. If both exist and there is neither a
+      strict character allowlist nor a containment check, REPORT.
+
+      Refactor direction: split validation into two complementary
+      layers — at the schema boundary, reject values containing
+      traversal segments, separators, absolute prefixes, control
+      characters, or anything outside an explicit allowlist; at
+      the sink, re-verify the fully resolved locator is contained
+      by the intended base (compare normalised prefixes with a
+      trailing separator). Where the value is purely an identifier,
+      derive the address deterministically (e.g. hash) so the
+      untrusted text never participates in the path.
+
+  - id: lower-trust-config-overrides-security-decision
+    name: Lower-Trust Configuration Overrides Security-Critical Decision
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust, yaml, json]
+    defaultSeverity: medium
+    hint: |
+      A setting that governs a security-relevant decision — where
+      the program writes, what hosts it trusts, what commands it
+      will execute, what protocols/origins are allowed, which
+      certificates are accepted, which sandbox to use — is read
+      from a source whose trust tier is lower than the decision
+      itself. A typical shape: configuration is layered (built-in
+      default → user / machine → project / workspace → ambient
+      env) and a project-scoped file (committed into the repo,
+      shipped over the wire, pulled from a tenant store) can
+      override the security-bearing field without an explicit
+      escalation prompt.
+
+      Form-independent signals:
+        - A configuration key whose name suggests a boundary
+          (`*dir`, `*path`, `*command`, `*allow*`, `*trust*`,
+          `*disable*verify*`, `*insecure*`, `*url`, `*endpoint`)
+          is readable from the same layered config API as
+          ordinary cosmetic settings.
+        - The setting reaches a sink that acts on its value
+          (filesystem write, process exec, network fetch,
+          dynamic load, certificate trust).
+        - No declarative scope, ACL, or runtime check restricts
+          which tier may set this key, and no consent prompt
+          fires when a lower tier shadows the default.
+
+      Reasoning step before reporting: identify what the setting
+      controls. If a hostile project / tenant / artifact, by
+      shipping its own copy of the config, can redirect the
+      program's writes, execution targets, network endpoints, or
+      trust decisions, REPORT.
+
+      Refactor direction: declare the setting's allowed scope at
+      schema time (machine-only, user-only, signed-policy-only)
+      so lower tiers cannot shadow it. Independently, at the read
+      site, validate the resolved value against the same safety
+      checks an attacker-controlled input would receive — refuse
+      to apply unsafe values regardless of which tier they came
+      from. Log when an override is ignored so audit and debug are
+      both possible.
+
+  - id: external-artifact-without-integrity-verification
+    name: External Artifact Installed or Executed Without Integrity Verification
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust, shell]
+    defaultSeverity: high
+    hint: |
+      The program fetches an artifact from outside its trust
+      boundary — a binary, package, plugin, script, container
+      image, model file, signed-policy document — and hands it
+      to an install, execute, load, or trust sink without
+      verifying provenance: no signature check against a pinned
+      public key, no comparison of a checksum published through
+      a separate channel, no enforcement of an origin allowlist,
+      no reproducible-build attestation. A compromise of the
+      publishing pipeline, the artifact host, the transport, or
+      any DNS / TLS / proxy hop between fetch and use can
+      substitute a malicious artifact that runs with the calling
+      user's privileges — every consumer of the auto-fetch
+      receives the substituted version on the next pull.
+
+      Form-independent signals:
+        - An artifact URL is read from a metadata feed, manifest,
+          environment variable, or release JSON — not pinned as a
+          constant — and used as the fetch target.
+        - Between "download complete" and the install/load/exec
+          sink, there is no verification step (only HTTP status
+          codes are checked).
+        - No allowlist constrains the host the artifact may be
+          downloaded from; redirects are followed without
+          re-checking origin.
+        - The default configuration enables the auto-fetch path.
+
+      Mandatory reasoning step before reporting: between fetch
+      and use, what guarantees does the program have that the
+      bytes are the bytes the publisher signed for? If the
+      answer relies solely on transport security (HTTPS) or on
+      trusting the publisher's pipeline transitively, REPORT.
+
+      Refactor direction: pin the publishing identity, not the
+      URL — verify a detached signature, an embedded signature,
+      or a checksum that travels through a different channel
+      than the artifact itself, and fail closed when the
+      verifier is missing or mismatched. Constrain fetch origins
+      to an allowlist. Prefer host-platform mechanisms with
+      built-in signature checks over hand-rolled auto-update.
+
+  - id: unsafe-deserialization-across-trust-boundary
+    name: Unsafe Deserialization Across a Trust Boundary
+    languages: [typescript, typescriptreact, javascript, python, ruby, java, kotlin, scala, csharp, go, php]
+    defaultSeverity: high
+    hint: |
+      Bytes that crossed a trust boundary are handed to a
+      deserializer whose contract permits side-effects during
+      parsing — instantiation of arbitrary types, invocation of
+      magic constructors, resolution of references the format
+      treats as executable, evaluation of embedded expressions.
+      Even when the calling code "only reads scalar fields" out
+      of the resulting structure, the loader's gadget chain has
+      already run.
+
+      Form-independent signals:
+        - A general-purpose loader is used instead of an explicit
+          safe / restricted variant the same library offers.
+        - The format itself supports active features (type tags,
+          object references, embedded code) and those features
+          are not disabled.
+        - The input source is *anything* outside the process's
+          own trusted state: disk files under workspace/repo
+          control, network responses, message-bus payloads,
+          cache entries populated by other tenants.
+        - Resulting structure is treated as data without runtime
+          type-check; whatever the loader returned is used
+          directly.
+
+      Reasoning step before reporting: name the parser API and
+      identify whether its documentation calls it "safe" /
+      "restricted" or "general." If the latter is used on a
+      cross-boundary input, REPORT regardless of how the parsed
+      value is subsequently used.
+
+      Refactor direction: use the safe API the library exposes
+      (`SafeLoader`, allowlisted class registry, schema-validated
+      decoders) or switch to a format whose parser cannot have
+      side effects (canonical JSON, length-prefixed records,
+      schema-checked Protobuf / Avro). After parsing, validate
+      the structure at runtime — types, ranges, character
+      allowlists on every field that will reach a downstream
+      sink — before passing anything onwards.
+
+  - id: inconsistent-validation-across-ingress-paths
+    name: Validation Enforced on Some Ingress Paths but Not Others
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust, php]
+    defaultSeverity: high
+    hint: |
+      State (or messages, records, jobs) enters the program through
+      more than one path — the live producer, a cache, a replay
+      mechanism, a persisted store, a restart-from-snapshot path, a
+      retry queue — and the validating / authenticating / authorising
+      gate is wired into only a subset of those paths. The unguarded
+      path treats whatever it loaded as already-validated, so an
+      attacker who can write into the cache / replay log / snapshot
+      can inject values that would have been rejected on the live
+      path and have them flow downstream as if they were trusted.
+
+      The bug is structural rather than local: the code that *does*
+      validate is correct; the failure is that another path skips it.
+      Reviewers reading any one ingress in isolation see a safe code
+      path and miss the parallel one.
+
+      Form-independent signals:
+        - A validation / authorisation routine is called from one
+          producer but not from a sibling that returns the same
+          shape of data (cache lookup, restored snapshot, retry
+          handler, message replay, "rehydrate from disk").
+        - The data structure carries no integrity field (HMAC,
+          signature, content-addressed key derived from the
+          validated fields) that the consumer re-checks.
+        - The cache / store / replay layer is reachable by a
+          principal at a lower trust tier than the live producer
+          (CI checkout of a PR, multi-tenant store, attacker-
+          writable disk path).
+
+      Mandatory reasoning step before reporting: enumerate every
+      place the consumer can obtain a value of this type. For each,
+      ask whether the validation gate runs. If any path is missing
+      it, REPORT and name both the validated path and the
+      unvalidated sibling.
+
+      Refactor direction: move validation to the consumer — gate
+      the *use* site, not the production sites — so every ingress
+      path passes through the same check. Equivalently, treat
+      cached / persisted values as untrusted on read: re-validate,
+      or store an integrity tag computed at validation time and
+      refuse to use values whose tag does not match. Never let
+      "we already checked it the first time" survive a process /
+      trust boundary.
+
+  - id: trust-following-filesystem-operation
+    name: Filesystem Operation Follows Adversary-Plantable Links
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust]
+    defaultSeverity: high
+    hint: |
+      The program performs a filesystem operation — create, write,
+      open-for-write, truncate, chmod, rename into — under a
+      directory whose path components, or whose final filename,
+      could have been planted by a party at a lower trust tier
+      (a contributor whose PR is checked out by CI, another
+      tenant sharing the working directory, a previous step in
+      the pipeline). The operation uses default link-following
+      semantics: the kernel resolves any symlink, junction, or
+      bind-mount on the path through to the target, so the write
+      lands wherever the planted link points — outside the
+      directory the program believed it was confined to.
+
+      Two shapes recur:
+        - A final-component symlink at the write target: writing
+          "our-output.yaml" lands in `/etc/whatever`.
+        - An intermediate-component symlink (or symlinked
+          directory itself): every write into "our-dir/" lands
+          in the attacker's directory.
+
+      Form-independent signals:
+        - The destination path is composed from a fixed root plus
+          one or more attacker-influenceable components (filename
+          derived from input data, directory checked out from a
+          PR, path with a configurable segment).
+        - The write API is the language's default (no
+          O_NOFOLLOW, no `openat` with `AT_SYMLINK_NOFOLLOW`, no
+          canonicalisation-then-check), or the create-directory
+          API treats "already exists" as success without inspecting
+          link metadata.
+        - The directory is not gitignored / not constrained by an
+          ACL — a malicious PR or peer process can plant a link.
+
+      Reasoning step before reporting: trace the path components
+      back. If any component can be authored by a principal at a
+      lower trust tier than the writer, AND the API does not
+      explicitly refuse symlinks, REPORT.
+
+      Refactor direction: open with O_NOFOLLOW / equivalent at
+      every level (or open the base directory once, then `*at()`
+      relative to that fd while refusing link components).
+      Independently, before writing, `lstat` each component and
+      refuse the operation if any is a symlink that escapes the
+      intended base. For the directory-level case, canonicalise
+      the resolved path and compare to the expected base with a
+      trailing separator. On filesystems where this protection
+      is hard to express, write to a process-private temp
+      directory and atomically `rename` into place, refusing if
+      the destination is unexpectedly a link.
+
+  - id: persisted-state-treated-as-authoritative
+    name: Persisted State Treated as Authoritative Without Re-Attestation
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust]
+    defaultSeverity: high
+    hint: |
+      Records on disk (or in a shared store) are loaded into the
+      program and used to drive a security-relevant decision — a
+      suppression / dismissal status, a "this was already
+      reviewed" flag, a published alert, an audit entry, an
+      access-control assertion — without verifying that the
+      record was produced by a principal authorised to make that
+      assertion. The loader treats the file's own self-described
+      identity / status as ground truth: whichever id, status, or
+      author the YAML claims is the id, status, or author the
+      consumer acts on.
+
+      The risk has two shapes:
+        - *Suppression bypass:* a poison record with a predictable
+          id and `status = dismissed/approved/ignored` is planted;
+          the live detector re-discovers the issue, the loader
+          merges the planted status onto the fresh detection, and
+          the gate that filters on status silently drops the
+          alarm.
+        - *Fabricated assertion:* a record is planted that the
+          live system never produced; the loader ingests it and
+          downstream emitters treat it as a genuine event (SARIF
+          upload, audit log entry, dashboard row).
+
+      Form-independent signals:
+        - On-disk records are deserialised and keyed by a field
+          inside the record itself, with no cross-check that the
+          key matches a value the *current* run would have
+          produced.
+        - A merge step prefers existing state for security-
+          relevant fields (status, severity, approval) without
+          attribution.
+        - The persistent location is writeable by a principal at
+          a lower trust tier than the consumer (CI PR checkout,
+          shared mount, multi-tenant prefix).
+        - There is no signature, MAC, or trusted-source registry
+          gating which records may carry security-relevant fields.
+
+      Mandatory reasoning step before reporting: for each
+      security-bearing field the loader honours from persisted
+      state (status, suppression, severity override, approval),
+      ask "who is allowed to set this, and how does the loader
+      verify the record came from them?" If the answer is
+      "anyone who can write the file", REPORT.
+
+      Refactor direction: use persisted state to look up *non-
+      security* properties only (priority, notes, history). For
+      security-bearing fields, either (a) require an attested
+      signature attached to each record and verify against a
+      pinned key, (b) maintain a separate, ACL-restricted store
+      for those fields (a "dismissals.yaml" outside the PR
+      surface, write-gated by code-owners), or (c) reset
+      security state on re-detection — treat freshly-detected
+      issues as un-dismissed until a trusted source asserts
+      otherwise. Independently, never emit a persisted record as
+      an authoritative new event without re-verifying its
+      provenance against the current run.
+
+  - id: credential-scoped-to-identity-not-destination
+    name: Credential Reused Across Destinations With Different Trust Domains
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust]
+    defaultSeverity: high
+    hint: |
+      A single credential value — a key, token, password, session
+      cookie — is held in a generic "credential" slot and supplied
+      as the authenticator for whichever destination the program
+      is currently talking to, with no constraint that the
+      credential was issued by, or intended for, that destination.
+      A user who provides credential C expecting it to authenticate
+      to service A finds it transmitted to service B when the
+      program is reconfigured to use B as its backend. Service B
+      now sees C in plaintext: in its request logs, monitoring,
+      WAF, anything with access to inbound bearer headers, and
+      anyone who later compromises that environment.
+
+      The dual of this failure is also dangerous: a fallback
+      chain that "tries each known credential against the active
+      service" leaks every credential in the chain to the first
+      destination it talks to.
+
+      Form-independent signals:
+        - A unified credential variable (`api_key`, `auth_token`,
+          `cli_secret`) is read once and then used as the
+          authenticator for whichever client object is built.
+        - The credential's environment-variable source is named
+          after one specific service (`ANTHROPIC_API_KEY`,
+          `STRIPE_SECRET_KEY`, `GITHUB_TOKEN`) but its
+          destination is selectable at runtime via a separate
+          flag.
+        - No "this credential is for endpoint X" tag is carried
+          alongside the value, and no check at the send site
+          confirms the destination matches the tag.
+        - On missing-credential paths, the resolver substitutes
+          the other service's value rather than failing.
+
+      Reasoning step before reporting: read the destination
+      selection independently from the credential resolution.
+      Could a user combination — e.g. "I exported the
+      service-A key + I selected service B" — result in the
+      service-A key being sent to service B? If yes, REPORT.
+
+      Refactor direction: bind credentials to destinations in
+      the type system — `AnthropicKey`, `GitHubToken`, distinct
+      types or named slots that the client APIs accept only
+      from the matching slot. Resolve each destination's
+      credential from its own env var / config key and refuse
+      to substitute another's. Fail loudly when a destination's
+      credential is missing rather than silently borrowing from
+      a sibling. As defence in depth, redact credentials in
+      logs and refuse to send a credential to a host whose
+      origin does not match the credential's intended issuer.
+
+  - id: untrusted-input-terminates-shared-process
+    name: Untrusted Input Can Terminate or Starve a Shared Process
+    languages: [typescript, typescriptreact, javascript, java, kotlin, scala, csharp, python, ruby, go, rust]
+    defaultSeverity: high
+    hint: |
+      A program processes inputs that crossed a trust boundary
+      (files, messages, requests) inside the same process / OS
+      thread / event loop that does the rest of its work, and
+      the processing code has at least one input shape that
+      causes the host to terminate the process or stall it
+      indefinitely:
+
+        - Panic / unhandled exception on a malformed value
+          (byte-slice across a UTF-8 boundary, integer overflow,
+          null in a non-null slot) — terminates the whole
+          process if `panic = abort` / unhandled-exception
+          policy / shared event loop.
+        - Unbounded recursion driven by structure in the input
+          (deeply nested types, cyclic graphs, alias chains) —
+          overflows the OS stack, which `catch_unwind` and
+          equivalent exception handlers cannot recover from.
+        - Algorithmic-complexity bomb (billion-laughs alias
+          expansion, exponential regex backtracking,
+          quadratic-merge inputs) — exhausts memory or CPU
+          before validation can run.
+        - Resource-amplification (deeply nested archives,
+          decompression bombs, payloads that fan out into many
+          subtasks) — same effect.
+
+      The shared process is doing security-relevant work (a
+      scan, a gate, a verification step), so a crash or stall
+      is itself the attack: the security check fails open by
+      not running. Any subsequent code in the same job is also
+      suppressed.
+
+      Form-independent signals:
+        - An input-handling routine has no per-input timeout,
+          memory cap, depth limit, or sandboxed worker — failures
+          in one input bring down the whole process.
+        - Recursive descent over an input-shaped structure
+          (parser, graph walker, evaluator) with no depth bound
+          and no iterative fallback.
+        - Use of a parser or regex engine whose pathological
+          inputs are documented but no mitigations
+          (size cap, alias cap, linear regex, streaming parser)
+          are configured.
+        - Operations on input bytes that assume a property the
+          input does not have to satisfy (char boundary,
+          finite-size, well-formed).
+
+      Mandatory reasoning step before reporting: pick one
+      input-handling site. Can you construct an input ≤ a few
+      KB / a few thousand records that makes this site abort,
+      hang, or exhaust resources? If yes — and the site runs
+      inside the same process as a security check — REPORT and
+      describe the input shape.
+
+      Refactor direction: bound the input before parsing (size
+      cap on the buffer, document-cap on the structure), bound
+      recursion (explicit work-stack, depth ceiling, mutual
+      `Box::pin` on async), bound resource use (per-input
+      timeout, per-input memory cap), and isolate (spawn the
+      work in a subprocess / worker whose crash is contained).
+      Switch to parsers / regex engines with documented worst-
+      case bounds where one is available. Treat any input
+      assumption (char boundary, integer range, structure
+      depth) as a check rather than a precondition.

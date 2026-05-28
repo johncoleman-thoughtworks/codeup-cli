@@ -180,6 +180,13 @@ fn normalize_posix(s: &str) -> String {
 
 /// Tarjan's SCC — every component of size > 1 is a cycle. Self-loops
 /// (size 1 with self-edge) are filtered out to match the TS behaviour.
+///
+/// Implemented iteratively with an explicit work stack rather than via
+/// recursion: recursive Tarjan on attacker-shaped inputs (a long linear
+/// chain of imports) overflows the OS thread stack, and stack-overflow
+/// is not catchable by panic handlers — it terminates the entire scan
+/// process. Iterative form bounds depth to the heap, which is large and
+/// growable.
 pub fn find_cycles(g: &DependencyGraph) -> Vec<Cycle> {
     let mut nodes: HashSet<&str> = HashSet::new();
     for k in g.edges.keys() {
@@ -197,58 +204,91 @@ pub fn find_cycles(g: &DependencyGraph) -> Vec<Cycle> {
     let mut counter: usize = 0;
     let mut cycles: Vec<Cycle> = Vec::new();
 
-    #[allow(clippy::too_many_arguments)]
-    fn strongconnect(
-        v: &str,
-        g: &DependencyGraph,
-        idx: &mut HashMap<String, usize>,
-        lowlink: &mut HashMap<String, usize>,
-        on_stack: &mut HashSet<String>,
-        stack: &mut Vec<String>,
-        counter: &mut usize,
-        cycles: &mut Vec<Cycle>,
-    ) {
-        idx.insert(v.to_string(), *counter);
-        lowlink.insert(v.to_string(), *counter);
-        *counter += 1;
-        stack.push(v.to_string());
-        on_stack.insert(v.to_string());
-
-        let empty = BTreeSet::new();
-        let succ = g.edges.get(v).unwrap_or(&empty).clone();
-        for w in &succ {
-            if !idx.contains_key(w) {
-                strongconnect(w, g, idx, lowlink, on_stack, stack, counter, cycles);
-                let new_low = std::cmp::min(lowlink[v], lowlink[w]);
-                lowlink.insert(v.to_string(), new_low);
-            } else if on_stack.contains(w) {
-                let new_low = std::cmp::min(lowlink[v], idx[w]);
-                lowlink.insert(v.to_string(), new_low);
-            }
-        }
-
-        if lowlink[v] == idx[v] {
-            let mut component: Vec<String> = Vec::new();
-            loop {
-                let w = stack.pop().expect("stack empty during SCC pop");
-                on_stack.remove(&w);
-                component.push(w.clone());
-                if w == v {
-                    break;
-                }
-            }
-            if component.len() > 1 {
-                component.reverse();
-                cycles.push(Cycle { files: component });
-            } else if succ.contains(v) {
-                cycles.push(Cycle { files: component });
-            }
-        }
+    // Each work frame represents a paused strongconnect call: the node
+    // being processed, the ordered list of successors, and how many of
+    // them we've already finished.
+    struct Frame {
+        v: String,
+        succ: Vec<String>,
+        next_succ: usize,
     }
 
-    for v in &nodes {
-        if !idx.contains_key(v) {
-            strongconnect(v, g, &mut idx, &mut lowlink, &mut on_stack, &mut stack, &mut counter, &mut cycles);
+    let empty = BTreeSet::new();
+
+    for start in &nodes {
+        if idx.contains_key(start) {
+            continue;
+        }
+
+        // Open initial frame.
+        idx.insert(start.clone(), counter);
+        lowlink.insert(start.clone(), counter);
+        counter += 1;
+        stack.push(start.clone());
+        on_stack.insert(start.clone());
+        let succ: Vec<String> = g
+            .edges
+            .get(start)
+            .unwrap_or(&empty)
+            .iter()
+            .cloned()
+            .collect();
+        let mut work: Vec<Frame> = vec![Frame { v: start.clone(), succ, next_succ: 0 }];
+
+        while let Some(frame) = work.last_mut() {
+            if frame.next_succ < frame.succ.len() {
+                let w = frame.succ[frame.next_succ].clone();
+                frame.next_succ += 1;
+                if !idx.contains_key(&w) {
+                    // Recurse: open a child frame and continue from there.
+                    idx.insert(w.clone(), counter);
+                    lowlink.insert(w.clone(), counter);
+                    counter += 1;
+                    stack.push(w.clone());
+                    on_stack.insert(w.clone());
+                    let w_succ: Vec<String> = g
+                        .edges
+                        .get(&w)
+                        .unwrap_or(&empty)
+                        .iter()
+                        .cloned()
+                        .collect();
+                    work.push(Frame { v: w, succ: w_succ, next_succ: 0 });
+                } else if on_stack.contains(&w) {
+                    let new_low = std::cmp::min(lowlink[&frame.v], idx[&w]);
+                    lowlink.insert(frame.v.clone(), new_low);
+                }
+                continue;
+            }
+
+            // All successors processed — emit component if this is a root.
+            let v = frame.v.clone();
+            let frame_succ = std::mem::take(&mut frame.succ);
+            work.pop();
+
+            if lowlink[&v] == idx[&v] {
+                let mut component: Vec<String> = Vec::new();
+                loop {
+                    let w = stack.pop().expect("stack empty during SCC pop");
+                    on_stack.remove(&w);
+                    component.push(w.clone());
+                    if w == v {
+                        break;
+                    }
+                }
+                if component.len() > 1 {
+                    component.reverse();
+                    cycles.push(Cycle { files: component });
+                } else if frame_succ.iter().any(|s| s == &v) {
+                    cycles.push(Cycle { files: component });
+                }
+            }
+
+            // Propagate lowlink to parent frame, if any.
+            if let Some(parent) = work.last_mut() {
+                let new_low = std::cmp::min(lowlink[&parent.v], lowlink[&v]);
+                lowlink.insert(parent.v.clone(), new_low);
+            }
         }
     }
     cycles
@@ -351,6 +391,35 @@ mod tests {
             entry("src/c.ts", "typescript", &[]),
         ]);
         assert!(find_cycles(&build_graph(&idx)).is_empty());
+    }
+
+    #[test]
+    fn deep_linear_chain_terminates_without_stack_overflow() {
+        // A 20_000-file linear import chain would overflow the OS stack
+        // under recursive Tarjan. Iterative form bounds depth to the
+        // heap. Test that find_cycles returns (no cycles) without
+        // aborting the process.
+        let n = 20_000;
+        let mut entries = Vec::with_capacity(n);
+        for i in 0..n {
+            let path = format!("src/m{i:05}.ts");
+            let imports: Vec<String> = if i + 1 < n {
+                vec![format!("./m{:05}", i + 1)]
+            } else {
+                vec![]
+            };
+            entries.push(FileEntry {
+                path,
+                language: "typescript".into(),
+                size: 0,
+                content_hash: "".into(),
+                mtime: 0,
+                raw_imports: imports,
+            });
+        }
+        let idx = index(entries);
+        let cycles = find_cycles(&build_graph(&idx));
+        assert!(cycles.is_empty());
     }
 
     #[test]
