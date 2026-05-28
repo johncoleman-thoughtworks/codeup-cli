@@ -109,6 +109,26 @@ A reasonable starter `.gitignore`:
 .codeup/cache/
 ```
 
+### `.codeupignore`
+
+Optional. Works exactly like `.gitignore` — same syntax, can be placed at any depth in the workspace. Use it to exclude paths from Codeup analysis that you want tracked by git (generated source, fixtures, vendored data).
+
+**Precedence:** `.codeupignore` rules **override `.gitignore` rules at any depth**. A `!keep.snap` in a `.codeupignore` brings the file back into the scan even when a `.gitignore` (in the same directory or higher) ignores it. A non-overridable defaults set (`.git`, `node_modules`, `.codeup`, lock files, …) is always skipped.
+
+Example — scan generated files that are gitignored:
+
+```gitignore
+# .codeupignore at workspace root
+!**/generated/*.ts
+```
+
+Example — skip a directory the scanner would otherwise visit:
+
+```gitignore
+# apps/web/.codeupignore
+fixtures/
+```
+
 ## GitHub Actions
 
 The CLI is designed for Actions first. The recommended setup uploads SARIF to GitHub Code Scanning so findings appear as inline PR annotations and under **Security → Code scanning alerts**.

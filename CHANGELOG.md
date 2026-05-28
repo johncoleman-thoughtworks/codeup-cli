@@ -4,6 +4,17 @@ All notable changes to the Codeup CLI are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 0.2.0 — 2026-05-28
+
+### Added
+
+- **`.codeupignore` files.** Optional ignore files that work exactly like `.gitignore` and can appear at any depth in the workspace. Use them to exclude paths from Codeup analysis that you want tracked by git (generated source, fixtures, vendored data).
+- **Global precedence.** `.codeupignore` rules override `.gitignore` rules at any depth — a `!keep.snap` in a `.codeupignore` re-includes a file even when a `.gitignore` (anywhere in the tree) ignores it. A non-overridable defaults set (`.git`, `node_modules`, `.codeup`, lock files, …) is always skipped and cannot be un-ignored via either file.
+
+### Changed
+
+- Workspace walker now uses three separate matchers (defaults / codeupignore / gitignore) consulted in priority order, replacing the previous `WalkBuilder` configuration that treated all custom ignore files additively.
+
 ## 0.1.1 — 2026-05-28
 
 ### Security
