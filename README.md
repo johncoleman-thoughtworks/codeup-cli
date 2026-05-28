@@ -32,7 +32,26 @@ Output goes to one of three formats: a human-readable text summary (default), SA
 
 ## Install
 
-Build from source:
+One-line install (Linux + macOS, prebuilt binary):
+
+```bash
+curl -fsSL https://github.com/johncoleman-thoughtworks/codeup-cli/releases/latest/download/codeup-installer.sh | sh
+```
+
+The installer picks the right prebuilt for your `uname`, verifies its SHA-256, drops the binary in `$HOME/.local/bin`, and tells you how to add that directory to `PATH` if it isn't already. Useful flags (pass with `sh -s --`):
+
+| Flag | Effect |
+|---|---|
+| `--version vX.Y.Z` | Install a specific tag (default: latest). |
+| `--prefix <dir>` | Install to `<dir>/bin` instead of `$HOME/.local/bin`. |
+| `--from-source` | Skip the prebuilt path; `git clone` and `cargo build` instead. Required on unsupported platforms (e.g. linux/armv7). |
+| `--yes` | Non-interactive: let the installer append the PATH line to your shell rc. |
+| `--no-modify-path` | Never touch shell rc files; just print the export line. |
+| `--uninstall` | Remove the binary and the installer's PATH entry. |
+
+The same script lives at [`scripts/install.sh`](scripts/install.sh) in this repo if you'd rather read it before piping to `sh`. Prebuilt binaries and checksums are on the [releases page](https://github.com/johncoleman-thoughtworks/codeup-cli/releases).
+
+Build from source (no installer):
 
 ```bash
 git clone https://github.com/johncoleman-thoughtworks/codeup-cli.git
@@ -40,8 +59,6 @@ cd codeup-cli
 cargo build --release
 ./target/release/codeup --help
 ```
-
-Pre-built binaries on the [releases page](https://github.com/johncoleman-thoughtworks/codeup-cli/releases) once we tag one.
 
 ## Quick start
 

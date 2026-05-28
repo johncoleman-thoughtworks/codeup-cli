@@ -111,52 +111,15 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Generate installer script
+      # Single source of truth: the installer lives at scripts/install.sh in
+      # the repo (so it's reviewed, testable, and curl-able directly from
+      # main). At release time we just copy it into the release assets under
+      # the well-known name `codeup-installer.sh` so the README's one-liner
+      # against `releases/latest/download/` keeps working.
+      - name: Stage installer script
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
-          cat > artifacts/codeup-installer.sh <<'INSTALLER'
-          #!/usr/bin/env sh
-          # codeup-cli installer. Picks the right binary for the current
-          # platform from the published GitHub release.
-          #
-          #   curl -fsSL https://github.com/johncoleman-thoughtworks/codeup-cli/releases/latest/download/codeup-installer.sh | sh
-          #
-          # Honours $CODEUP_INSTALL_DIR (default: $HOME/.local/bin) and
-          # $CODEUP_VERSION (default: latest).
-          set -eu
-
-          REPO="johncoleman-thoughtworks/codeup-cli"
-          INSTALL_DIR="${CODEUP_INSTALL_DIR:-$HOME/.local/bin}"
-          VERSION="${CODEUP_VERSION:-latest}"
-
-          OS=$(uname -s)
-          ARCH=$(uname -m)
-          case "$OS-$ARCH" in
-            Linux-x86_64)   TARGET=x86_64-unknown-linux-gnu ;;
-            Linux-aarch64)  TARGET=aarch64-unknown-linux-gnu ;;
-            Darwin-arm64)   TARGET=aarch64-apple-darwin ;;
-            Darwin-x86_64)  TARGET=x86_64-apple-darwin ;;
-            *) echo "Unsupported platform: $OS-$ARCH" >&2; exit 1 ;;
-          esac
-
-          if [ "$VERSION" = "latest" ]; then
-            URL="https://github.com/$REPO/releases/latest/download/codeup-$TARGET.tar.gz"
-          else
-            URL="https://github.com/$REPO/releases/download/$VERSION/codeup-$TARGET.tar.gz"
-          fi
-
-          mkdir -p "$INSTALL_DIR"
-          TMP=$(mktemp -d)
-          trap 'rm -rf "$TMP"' EXIT
-          echo "Downloading codeup ($TARGET) from $URL"
-          curl -fsSL "$URL" -o "$TMP/codeup.tar.gz"
-          tar -xzf "$TMP/codeup.tar.gz" -C "$TMP"
-          mv "$TMP/codeup" "$INSTALL_DIR/codeup"
-          chmod +x "$INSTALL_DIR/codeup"
-          echo "Installed: $INSTALL_DIR/codeup"
-          echo "Run: $INSTALL_DIR/codeup --help"
-          INSTALLER
+          cp scripts/install.sh artifacts/codeup-installer.sh
           chmod +x artifacts/codeup-installer.sh
 
       - name: List artifacts
