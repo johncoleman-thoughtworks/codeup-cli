@@ -9,13 +9,17 @@ The same analysis core powers the [Codeup VS Code extension](https://github.com/
 Given a workspace root, codeup-cli walks the source, builds a dependency graph, and emits findings against a catalogue of architectural anti-patterns:
 
 - **Deterministic checks** (always run, no LLM cost):
-  - Import cycles via Tarjan SCC.
+  - Import cycles via Tarjan SCC (iterative — no stack overflow on deep import chains).
   - Layer violations against `.codeup/intent.yaml` rules.
   - Oversized files (size-based, gated to actual source languages).
-- **LLM checks** (single-file tool-use against the catalogue):
-  - Anemic domain models, primitive obsession, long methods, deep nesting, dead code, leaky abstractions, refused bequest, function-name mismatches, magic numbers, and ~30 more.
-  - Per-file content-hash cache so unchanged files don't re-roundtrip.
+- **LLM checks** (single-file tool-use against the catalogue of **107 patterns**):
+  - Anemic domain models, primitive obsession, long methods, deep nesting, dead code, leaky abstractions, refused bequest, function-name mismatches, magic numbers, etc.
+  - Exception-handling smells: overbroad catches, lossy translation, exceptions used for validation or control flow, log-and-rethrow cargo cult, slow-fail / over-recovery.
+  - **Code security class (10 patterns)**: untrusted input in interpreting contexts, resource-locator path traversal, lower-trust config overriding security decisions, external artifacts installed without integrity verification, unsafe deserialization, inconsistent validation across ingress paths, trust-following filesystem operations, persisted state treated as authoritative, credentials scoped to identity rather than destination, untrusted input that can terminate a shared process.
+  - Per-file content-hash cache so unchanged files don't re-roundtrip. Cached findings are revalidated against the catalogue allowlist on every read.
   - Cross-file context: top-N graph neighbours are included in the prompt so findings about coupling actually see the coupled file.
+
+See [`crates/codeup-core/resources/default.yaml`](crates/codeup-core/resources/default.yaml) for the full pattern list. The catalogue is byte-identical to the VS Code extension's.
 
 Output goes to one of three formats: a human-readable text summary (default), SARIF 2.1.0 for GitHub Code Scanning, or raw findings JSON.
 
@@ -84,7 +88,7 @@ All settings can be passed as flags or environment variables:
 
 ### Anti-pattern catalogue
 
-A baseline catalogue ships embedded in the binary (sourced from the VS Code extension's `resources/catalogue/default.yaml`). Projects can extend or override entries by adding `.codeup/knowledge/patterns.yaml` — see the extension's docs for the override format. The two implementations share one catalogue and one schema, so a finding from either looks identical on disk.
+A baseline catalogue of **107 patterns** ships embedded in the binary (sourced from the VS Code extension's `resources/catalogue/default.yaml`). Projects can extend or override entries by adding `.codeup/knowledge/patterns.yaml` — see the extension's docs for the override format. The two implementations share one catalogue and one schema, so a finding from either looks identical on disk.
 
 ### Per-project state
 
@@ -111,18 +115,20 @@ A reasonable starter `.gitignore`:
 
 ### `.codeupignore`
 
-Optional. Works exactly like `.gitignore` — same syntax, can be placed at any depth in the workspace. Use it to exclude paths from Codeup analysis that you want tracked by git (generated source, fixtures, vendored data).
+If you want a file or directory tracked by git but excluded from Codeup analysis — generated source, test fixtures, vendored snapshots, large config files — add a `.codeupignore` next to it.
 
-**Precedence:** `.codeupignore` rules **override `.gitignore` rules at any depth**. A `!keep.snap` in a `.codeupignore` brings the file back into the scan even when a `.gitignore` (in the same directory or higher) ignores it. A non-overridable defaults set (`.git`, `node_modules`, `.codeup`, lock files, …) is always skipped.
+`.codeupignore` uses the **same syntax and semantics as `.gitignore`** (gitignore spec). You can place one at any depth in the workspace; patterns apply relative to that file's directory exactly as a `.gitignore` would.
 
-Example — scan generated files that are gitignored:
+**Precedence:** `.codeupignore` rules **override `.gitignore` rules at any depth**. A `!keep.snap` in a `.codeupignore` brings the file back into the scan even when a `.gitignore` (in the same directory or higher) ignores it. A non-overridable set of defaults (`.git`, `node_modules`, `.codeup`, etc.) is always skipped and cannot be un-ignored.
+
+Example — analyse files that git ignores:
 
 ```gitignore
 # .codeupignore at workspace root
 !**/generated/*.ts
 ```
 
-Example — skip a directory the scanner would otherwise visit:
+Example — skip a directory Codeup would otherwise scan:
 
 ```gitignore
 # apps/web/.codeupignore
