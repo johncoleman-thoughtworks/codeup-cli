@@ -4,6 +4,12 @@ All notable changes to the Codeup CLI are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **Catalogue eval harness** (`scripts/eval-catalogue.sh` + `crates/codeup-core/resources/eval/self-scan.jsonl`). Labelled baseline of 61 findings from running codeup against its own source, joined against a re-scan on `(file, category)` to track `agreed_TP / agreed_FP / new_finding / missed_TP`. Catalogue tuning PRs gate on `missed_TP == 0` so wording changes can't silently silence real findings.
+
 ## 0.2.1 — 2026-05-28
 
 ### Added
