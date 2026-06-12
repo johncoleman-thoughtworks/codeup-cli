@@ -49,12 +49,26 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-latest
             name: codeup-aarch64-apple-darwin
+          # Cross-compiled from the Apple-Silicon runner rather than a
+          # native macos-13 (Intel) runner: those are scarce and a v0.2.1
+          # release once hung 24h awaiting one. The toolchain installs the
+          # x86_64 target and rustls-tls is pure-Rust, so the arm64 host
+          # builds the Intel binary cleanly with no native-TLS linkage.
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-latest
             name: codeup-x86_64-apple-darwin
 
+    # A scarce runner should fail fast, not silently block the release job
+    # for a day. 45 min is comfortably above the ~1.5 min real build time.
+    timeout-minutes: 45
+
     steps:
+      # Build the exact ref being released. On tag push that's the tag; on
+      # manual dispatch it's the `tag` input (so the fixed pipeline on a
+      # branch can still build and publish a previously-cut tag).
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -104,6 +118,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -128,8 +144,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || inputs.tag }}
-          name: ${{ github.ref_name || inputs.tag }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
