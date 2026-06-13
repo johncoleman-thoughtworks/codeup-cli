@@ -3,6 +3,8 @@
 mod analyzer;
 mod cache;
 mod llm;
+mod mcp;
+mod review;
 mod runner;
 mod sarif;
 mod store;
@@ -40,6 +42,18 @@ enum Command {
         #[command(subcommand)]
         action: IntentAction,
     },
+    /// Run as a local MCP server over stdio. Exposes codeup's deterministic
+    /// checks and a catalogue review to MCP hosts (GitHub Copilot / VS Code,
+    /// Claude Desktop, Cursor, Claude Code) with no LLM provider key — the
+    /// review borrows the host's own model via MCP sampling.
+    Mcp(McpArgs),
+}
+
+#[derive(clap::Args, Debug)]
+struct McpArgs {
+    /// Workspace root the server analyzes. Defaults to the current directory.
+    #[arg(long, default_value = ".")]
+    root: std::path::PathBuf,
 }
 
 #[derive(clap::Args, Debug)]
@@ -129,6 +143,7 @@ fn main() -> Result<()> {
                     anyhow::bail!("intent suggest: not implemented yet — Phase 2.x")
                 }
             },
+            Command::Mcp(args) => mcp::serve(args.root).await,
         }
     })
 }

@@ -73,6 +73,47 @@ codeup scan .
 codeup scan . --deterministic-only
 ```
 
+## MCP server (`codeup mcp`)
+
+`codeup mcp` runs the same analyzer as a local [MCP](https://modelcontextprotocol.io)
+server over stdio, so MCP hosts — **GitHub Copilot / VS Code**, Claude Desktop,
+Cursor, Claude Code — can use codeup **with no LLM provider key**:
+
+- **Deterministic checks** (import cycles, layer violations, oversized files)
+  run locally and keyless, in every host.
+- **The catalogue review borrows the host's own model via MCP _sampling_** — it
+  consumes the host's tokens / the user's existing Copilot or Claude
+  subscription, so there is no `ANTHROPIC_API_KEY` / `GITHUB_TOKEN` and no extra
+  cost beyond the host you already pay for. Hosts without sampling (e.g. Claude
+  Code today) still get the deterministic findings, plus a `codeup` prompt that
+  drives the review through the host's own agent loop.
+
+Findings are written to `.codeup/findings/*.yaml` exactly as `codeup scan` writes
+them — same catalogue, same schema, same stable ids — so they interoperate with
+the CLI and the VS Code extension.
+
+**Tools exposed:** `codeup_deterministic_scan`, `codeup_catalogue`,
+`codeup_graph_neighbors`, `codeup_list_findings`, `codeup_save_findings`, and
+`codeup_review` (the sampling-backed review). Plus a `codeup` prompt for
+host-delegation fallback.
+
+**Register it** (the binary ships in the same release):
+
+```jsonc
+// VS Code / GitHub Copilot — .vscode/mcp.json
+{ "servers": { "codeup": { "command": "codeup", "args": ["mcp"] } } }
+```
+
+```bash
+# Claude Code
+claude mcp add codeup -- codeup mcp
+```
+
+Claude Desktop takes the equivalent `command`/`args` block in its MCP config.
+The server is stdio-only (no network listener), holds no credentials, and
+confines all writes to `.codeup/`. See [PLAN-MCP.md](PLAN-MCP.md) for the full
+design.
+
 ## Configuration
 
 ### Provider resolution

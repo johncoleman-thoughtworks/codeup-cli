@@ -179,6 +179,17 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
     })
 }
 
+/// Public wrapper so the MCP server can build the same neighbour context
+/// the CLI's LLM pass uses (sharpens cross-file findings under sampling).
+pub fn gather_neighbors_pub(
+    root: &Path,
+    entry: &codeup_core::scanner::FileEntry,
+    graph: &DependencyGraph,
+    index: &ProjectIndex,
+) -> Vec<NeighborFile> {
+    gather_neighbors(root, entry, graph, index)
+}
+
 fn gather_neighbors(
     root: &Path,
     entry: &codeup_core::scanner::FileEntry,

@@ -204,7 +204,7 @@ fn revalidate_cached(r: ReportedFinding, patterns: &[&CataloguePattern]) -> Opti
     Some(r)
 }
 
-fn validate_reported(input: &serde_json::Value, patterns: &[&CataloguePattern]) -> Option<ReportedFinding> {
+pub(crate) fn validate_reported(input: &serde_json::Value, patterns: &[&CataloguePattern]) -> Option<ReportedFinding> {
     let obj = input.as_object()?;
     let category = obj.get("category")?.as_str()?.to_string();
     if !patterns.iter().any(|p| p.id == category) {
@@ -242,7 +242,7 @@ fn validate_reported(input: &serde_json::Value, patterns: &[&CataloguePattern]) 
     })
 }
 
-fn make_finding(entry: &FileEntry, r: ReportedFinding, model: &str, now: &str) -> Finding {
+pub(crate) fn make_finding(entry: &FileEntry, r: ReportedFinding, model: &str, now: &str) -> Finding {
     let id = stable_id(&entry.path, &r.category, r.line);
     let severity = match r.severity.as_str() {
         "high" => Severity::High,
@@ -304,7 +304,7 @@ pub fn stable_id(file: &str, category: &str, line: u32) -> String {
     format!("{category}-{}", &hex[..12])
 }
 
-fn build_system_prompt(
+pub(crate) fn build_system_prompt(
     patterns: &[&CataloguePattern],
     with_neighbors: bool,
     knowledge: &codeup_core::knowledge::RelevantKnowledge,
@@ -352,7 +352,7 @@ fn collapse_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn build_user_prompt(entry: &FileEntry, text: &str, neighbors: &[NeighborFile]) -> String {
+pub(crate) fn build_user_prompt(entry: &FileEntry, text: &str, neighbors: &[NeighborFile]) -> String {
     let mut lines: Vec<String> = vec![
         format!("PRIMARY FILE (analyze this one): {}", entry.path),
         format!("Language: {}", entry.language),
@@ -388,7 +388,7 @@ fn build_user_prompt(entry: &FileEntry, text: &str, neighbors: &[NeighborFile]) 
     lines.join("\n")
 }
 
-fn report_finding_tool() -> ToolDefinition {
+pub(crate) fn report_finding_tool() -> ToolDefinition {
     ToolDefinition {
         name: "report_finding".into(),
         description: "Report a single architectural anti-pattern finding in the file under review. Call once per distinct issue. Each finding must map to a specific catalogue pattern id.".into(),

@@ -15,7 +15,7 @@ authors = ["John Coleman <john.coleman@thoughtworks.com>"]
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util", "process"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util", "io-std", "process", "sync", "time"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
