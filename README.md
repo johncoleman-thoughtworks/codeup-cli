@@ -77,42 +77,88 @@ codeup scan . --deterministic-only
 
 `codeup mcp` runs the same analyzer as a local [MCP](https://modelcontextprotocol.io)
 server over stdio, so MCP hosts — **GitHub Copilot / VS Code**, Claude Desktop,
-Cursor, Claude Code — can use codeup **with no LLM provider key**:
+Cursor, Claude Code — can use codeup **with no LLM provider key**. It's a single
+hand-rolled stdio server (no network listener, holds no credentials, confines all
+writes to `.codeup/`), and findings are written as `.codeup/findings/*.yaml`
+exactly as `codeup scan` writes them — same catalogue, same schema, same stable
+ids — so they interoperate with the CLI and the VS Code extension.
 
-- **Deterministic checks** (import cycles, layer violations, oversized files)
-  run locally and keyless, in every host.
-- **The catalogue review borrows the host's own model via MCP _sampling_** — it
-  consumes the host's tokens / the user's existing Copilot or Claude
-  subscription, so there is no `ANTHROPIC_API_KEY` / `GITHUB_TOKEN` and no extra
-  cost beyond the host you already pay for. Hosts without sampling (e.g. Claude
-  Code today) still get the deterministic findings, plus a `codeup` prompt that
-  drives the review through the host's own agent loop.
+Two analysis paths, with different host requirements:
 
-Findings are written to `.codeup/findings/*.yaml` exactly as `codeup scan` writes
-them — same catalogue, same schema, same stable ids — so they interoperate with
-the CLI and the VS Code extension.
+- **Deterministic checks** (import cycles, layer violations, oversized files) run
+  locally and keyless, in **every** host.
+- **The catalogue review (`codeup_review`) borrows the host's own model via MCP
+  _sampling_** — it consumes the host's tokens / your existing Copilot or Claude
+  subscription, so there is no `ANTHROPIC_API_KEY` / `GITHUB_TOKEN` and no cost
+  beyond the host you already pay for. Hosts that don't implement sampling still
+  get every deterministic finding, plus a `codeup` prompt that drives the review
+  through the host's own agent loop (host-delegation).
 
-**Tools exposed:** `codeup_deterministic_scan`, `codeup_catalogue`,
-`codeup_graph_neighbors`, `codeup_list_findings`, `codeup_save_findings`, and
-`codeup_review` (the sampling-backed review). Plus a `codeup` prompt for
-host-delegation fallback.
+### Install
 
-**Register it** (the binary ships in the same release):
-
-```jsonc
-// VS Code / GitHub Copilot — .vscode/mcp.json
-{ "servers": { "codeup": { "command": "codeup", "args": ["mcp"] } } }
-```
+The `mcp` subcommand ships in the same binary as the CLI. Install it to a stable
+path:
 
 ```bash
-# Claude Code
-claude mcp add codeup -- codeup mcp
+cargo install --path crates/codeup        # → ~/.cargo/bin/codeup
+# or use any release-artifact `codeup` binary on disk
 ```
 
-Claude Desktop takes the equivalent `command`/`args` block in its MCP config.
-The server is stdio-only (no network listener), holds no credentials, and
-confines all writes to `.codeup/`. See [PLAN-MCP.md](PLAN-MCP.md) for the full
-design.
+### Register it with a host
+
+GUI hosts often don't inherit your shell `PATH`, so prefer an **absolute path** to
+the binary.
+
+```bash
+# Claude Code (user scope = available in all your projects)
+claude mcp add codeup --scope user -- ~/.cargo/bin/codeup mcp
+claude mcp list          # → codeup: … - ✔ Connected
+```
+
+```jsonc
+// VS Code / GitHub Copilot — .vscode/mcp.json (committable, per-repo)
+{ "servers": { "codeup": { "command": "/abs/path/to/codeup", "args": ["mcp"] } } }
+```
+
+Claude Desktop / Cursor take the equivalent `command` + `args` block in their MCP
+config. By default the server analyzes its launch working directory; pass
+`--root <path>` (or a tool's `root` argument, which must stay inside that
+workspace) to override.
+
+> MCP servers bind at **session start** — open a new chat/window after registering.
+
+### Tools (and the prompt)
+
+| Tool | Model? | What it does |
+|---|---|---|
+| `codeup_deterministic_scan` | none | Import cycles (Tarjan SCC), layer violations vs `.codeup/intent.yaml`, oversized files. Persists to `.codeup/`. |
+| `codeup_catalogue` | none | The pattern catalogue (id, name, languages, severity, hint); optionally filtered by language. |
+| `codeup_graph_neighbors` | none | A file's dependency neighbours (`imports` / `importedBy` / `samePackage`). |
+| `codeup_list_findings` | none | Findings currently persisted under `.codeup/findings/`. |
+| `codeup_save_findings` | none | Validate findings against the catalogue and merge them into `.codeup/` (used by host-delegation). |
+| `codeup_review` | **host (sampling)** | Full catalogue review on the host's model; persists findings. Falls back to deterministic-only + a note where sampling is unavailable. |
+| `codeup` *(prompt)* | host agent | Host-delegation review: returns the catalogue + instructions so the host's own loop reasons, then calls `codeup_save_findings`. |
+
+### Using it in a session
+
+You don't call tools by their raw names — ask in natural language and the host
+routes to them:
+
+- *"Use codeup to find import cycles and layer violations in this repo."* → `codeup_deterministic_scan`
+- *"What does `OrderService` import, and what imports it?"* → `codeup_graph_neighbors`
+- *"Review `src/payments/` against codeup's catalogue."* → `codeup_review` (sampling) where supported, else run the `codeup` prompt
+- *"List the codeup findings on disk."* → `codeup_list_findings`
+
+### Host support for `codeup_review` (sampling)
+
+| Host | Deterministic tools | `codeup_review` (host-tokens) |
+|---|---|---|
+| **VS Code / GitHub Copilot** | ✅ | ✅ via MCP sampling (no key, host tokens) |
+| **Claude Desktop / Cursor** | ✅ | ✅ where the build implements sampling |
+| **Claude Code** | ✅ | ⚠️ no sampling today → deterministic-only + use the `codeup` prompt |
+
+See [PLAN-MCP.md](PLAN-MCP.md) for the full design, the sampling flow, and open
+questions.
 
 ## Configuration
 

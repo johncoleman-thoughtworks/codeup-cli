@@ -8,6 +8,33 @@ tokens / the user's existing Copilot or Claude subscription); the deterministic
 engine runs locally and keyless. Single-sourced from `codeup-core`, so findings
 stay byte-identical with the CLI, the VS Code extension, and the skill.
 
+## Status (updated 2026-06-13)
+
+**Built and verified (branch `mcp`, not yet merged):**
+
+- ✅ **P0** shared review module · ✅ **P1** keyless tools · ✅ **P2** sampling review
+  + host-delegation prompt. 100 tests green; clippy clean on lib+bin.
+- ✅ Six tools + `codeup` prompt over a hand-rolled stdio JSON-RPC server.
+- ✅ Bidirectional sampling proven against a **simulated** host (Python harness).
+- ✅ DDD pass: single review orchestrator behind a `FileReviewer` port, one
+  `Finding` constructor, bounded-context `root` fence.
+- ✅ Installed (`cargo install`) and **registered with Claude Code** (`claude mcp
+  add`, user scope) — `claude mcp list` reports it connected.
+
+**Not done / unverified:**
+
+- ❌ **P3 (DX):** skill capability-ladder integration, `codeup mcp install` helper,
+  registry submission, per-file sampling cache.
+- ⚠️ **Sampling against a real host:** `codeup_review` on host tokens is **not yet
+  validated end-to-end on a released build.** Empirically, **Claude Code (v2.1.177,
+  protocol 2025-11-25) advertises `roots` + `elicitation` but NOT `sampling`** — so
+  in Claude Code `codeup_review` correctly falls back to deterministic-only +
+  delegation. **VS Code / Copilot is the host to validate** the real host-tokens
+  path (Open question #1).
+- ❌ Rust import resolution (affects `codeup_deterministic_scan` cycles/layers on
+  Rust repos — the resolver covers JVM/TS/JS/Python/Go/C#, not Rust). Pre-existing
+  CLI limitation, not MCP-specific, but relevant when reviewing this repo's crates.
+
 ## Hard requirements (from the brief)
 
 1. **Usable from Copilot** (VS Code agent mode) and other MCP hosts.
@@ -238,7 +265,7 @@ helper that writes the right config.
 - **P0 — refactor:** ✅ *implemented (branch `mcp`).* Analyzer prompt builders,
   catalogue validation, and the stable-id/save path are reused by the MCP server
   (`analyzer` fns made `pub(crate)`; new `review` module for sampling
-  JSON-in-text parsing). CLI tests stay green (61 core + 38 CLI).
+  JSON-in-text parsing). CLI tests stay green (61 core + 39 CLI).
 - **P1 — keyless MCP MVP:** ✅ *implemented.* `codeup mcp` (hand-rolled
   newline-delimited JSON-RPC stdio server, no SDK dep) with
   `codeup_deterministic_scan`, `codeup_catalogue`, `codeup_graph_neighbors`,
@@ -300,10 +327,15 @@ already one coherent domain) or renaming tools.
 
 ## Open questions / risks
 
-1. **Sampling support must be re-verified** for the current VS Code/Copilot and
-   Claude Desktop builds (and whether Claude Code has added it). The whole
-   host-tokens story rests on this; if a target lacks sampling, it falls back to
-   host-delegation (agent hosts) or deterministic-only.
+1. **Sampling support per host** — the whole host-tokens story rests on this.
+   Status by host:
+   - **Claude Code** — ❌ **verified absent** (v2.1.177, protocol 2025-11-25:
+     advertises `roots` + `elicitation`, no `sampling`). `codeup_review` falls
+     back to deterministic-only + the `codeup` delegation prompt. As designed.
+   - **VS Code / Copilot** — ⏳ reported to support sampling, **not yet validated
+     end-to-end** with codeup on a released build. This is the remaining
+     must-verify before claiming the host-tokens review "works."
+   - **Claude Desktop / Cursor** — ⏳ unverified; treat as VS Code until confirmed.
 2. **No forced tool-use over sampling** → rely on JSON-in-text parsing; budget
    for occasional malformed output (retry/repair, then skip the file with a note).
 3. **Token cost & rate limits** are the host's; large repos could be slow/costly

@@ -4,65 +4,82 @@ Goal: a Rust workspace producing a single static `codeup` binary that runs the s
 
 The reference implementation lives at [johncoleman-thoughtworks/codeup-vscx](https://github.com/johncoleman-thoughtworks/codeup-vscx). Each phase below ports a slice and tests it against the same fixtures.
 
-## Phase 1 — Pure analysis core (4 days estimate)
+## Status (updated 2026-06-13)
 
-Port the vscode-free TypeScript modules to `codeup-core`. Each maps roughly 1:1.
+**Phases 1–4 are substantially complete: the `codeup` binary builds, scans, and is released (v0.2.1).** Remaining gaps are individually flagged `[ ]` below. A separate **MCP capability** (`codeup mcp`) has since been built on top of this core — tracked in **[PLAN-MCP.md](PLAN-MCP.md)**.
+
+Done:
+- ✅ Whole analysis core (Phase 1) — every module ported and unit-tested (61 core tests).
+- ✅ LLM orchestration (Phase 2) — Anthropic + GitHub Models providers, analyzer, runner.
+- ✅ Reporters + key flags (Phase 3) — text / JSON / SARIF, `--fail-on`, `--deterministic-only`.
+- ✅ Distribution (Phase 4) — multi-target release workflow + curl installer + README.
+
+Not done (carried):
+- ❌ `intent suggest` subcommand (Phase 2) — still stubbed (`bail!("not implemented yet")`).
+- ❌ `--diff <ref>` mode, markdown reporter, `--max-cost` enforcement, `--persist` flag (Phase 3).
+- ❌ Windows release target; `examples/` recipe files (Phase 4).
+- ⏳ The three cross-cutting open questions below remain open.
+
+## Phase 1 — Pure analysis core ✅ complete
+
+Ported the vscode-free TypeScript modules to `codeup-core`.
 
 - [x] `schema.rs` — Finding, location, history, severity/status/priority enums; serde round-trip tests.
-- [ ] `migrations.rs` — generic version migration runner (TS: `migrations/runner.ts`).
-- [ ] `catalogue.rs` — catalogue loader + per-language filter (TS: `catalogue/loader.ts`). Ships the same `default.yaml` from this repo.
-- [ ] `knowledge.rs` — schema + retrieval (glob match, directory proximity). Mirrors TS `knowledge/{schema,retrieve}.ts`.
-- [ ] `intent.rs` — layer rules + matching (TS: `intent/layers.ts`).
-- [ ] `scanner/walk.rs` — workspace walk via `ignore::Walk`, language detection.
-- [ ] `scanner/imports.rs` — per-language regex import extraction (TS: `scanner/imports.ts`).
-- [ ] `scanner/graph.rs` — dependency graph + Tarjan SCC (TS: `scanner/graph.ts`).
-- [ ] `quality/size_check.rs` — oversized-file finding (TS: `quality/sizeCheck.ts`).
-- [ ] `cache.rs` — per-entry analysis cache (TS: `analyzer/cache.ts`).
+- [x] `migrations.rs` — generic version migration runner (TS: `migrations/runner.ts`).
+- [x] `catalogue.rs` — catalogue loader + per-language filter (TS: `catalogue/loader.ts`). Ships the same `default.yaml`.
+- [x] `knowledge.rs` — schema + retrieval (glob match, directory proximity). Mirrors TS `knowledge/{schema,retrieve}.ts`.
+- [x] `intent.rs` — layer rules + matching, plus deterministic cycle / layer-violation findings (TS: `intent/layers.ts`).
+- [x] `scanner/walk.rs` — workspace walk via `ignore::Walk`, language detection.
+- [x] `scanner/imports.rs` — per-language regex import extraction (TS: `scanner/imports.ts`).
+- [x] `scanner/graph.rs` — dependency graph + iterative Tarjan SCC (TS: `scanner/graph.ts`).
+- [x] `quality.rs` — oversized-file finding (TS: `quality/sizeCheck.ts`). (Named `quality.rs`, not `quality/size_check.rs`.)
+- [x] `cache.rs` — per-entry analysis cache key (TS: `analyzer/cache.ts`).
 
-Port the existing unit tests alongside each module. Aim for parity with the TS test suite (currently ~96 tests).
-
-## Phase 2 — HTTP + LLM orchestration (3 days estimate)
+## Phase 2 — HTTP + LLM orchestration ◐ mostly complete
 
 In the `codeup` binary:
 
-- [ ] `llm/anthropic.rs` — Anthropic Messages API client. No official Rust SDK; handwritten request/response types via `serde` against the public schema.
-- [ ] `llm/github_models.rs` — GitHub Models endpoint. Same Claude wire format, different base URL + auth header.
-- [ ] `llm/provider.rs` — `LLMClient` trait + selection (`--provider anthropic|github-models` plus auto-detect).
-- [ ] `analyzer.rs` — neighbor gathering + tool-use loop + cache integration (TS: `analyzer/analyze.ts`).
-- [ ] `runner.rs` — orchestrates the deterministic checks + LLM pass + finding persistence.
-- [ ] `intent_suggest.rs` — propose_layer_rules tool flow.
+- [x] `llm/anthropic.rs` — Anthropic Messages API client; handwritten request/response types, with 429/5xx retry.
+- [x] `llm/github_models.rs` — GitHub Models endpoint (same Claude wire format, different base URL + auth).
+- [x] `llm/provider.rs` — provider selection (`--provider anthropic|github-models` + auto-detect). *(Enum dispatch rather than a `dyn` trait — there are only ever two providers.)*
+- [x] `analyzer.rs` — neighbour gathering + tool-use loop + cache integration (TS: `analyzer/analyze.ts`). *(Per-file orchestration since lifted into `review::review_workspace`, shared with the MCP server — see PLAN-MCP.md.)*
+- [x] `runner.rs` — orchestrates deterministic checks + LLM pass + finding persistence.
+- [ ] `intent_suggest.rs` — `propose_layer_rules` tool flow. **Not done**: `intent suggest` still bails with "not implemented yet".
 
-## Phase 3 — Reporters & flags (2 days estimate)
+## Phase 3 — Reporters & flags ◐ partial
 
-- [ ] `reporters/text.rs` — terminal-friendly summary.
-- [ ] `reporters/json.rs` — structured dump.
-- [ ] `reporters/markdown.rs` — PR-comment-shaped markdown.
-- [ ] `reporters/sarif.rs` — SARIF 2.1.0, schema-validated against the official JSON schema.
-- [ ] `--diff <ref>` mode using `git diff --name-only`.
-- [ ] `--max-cost` enforcement.
-- [ ] `--fail-on <severity>` exit-code logic.
-- [ ] `--persist` flag to write findings YAML.
+- [x] text reporter — terminal-friendly summary (`render_text` in `main.rs`; not a separate `reporters/` module).
+- [x] json reporter — structured dump (`--out json`, serde in `main.rs`).
+- [ ] markdown reporter — PR-comment-shaped markdown. **Not done.**
+- [x] `sarif.rs` — SARIF 2.1.0 (`--out sarif`).
+- [ ] `--diff <ref>` mode using `git diff --name-only`. **Not done** (no flag).
+- [ ] `--max-cost` enforcement. **Partial**: the flag is parsed (default 5.0) but no enforcement/prompt is wired — it's a documented ceiling only.
+- [x] `--fail-on <severity>` exit-code logic (default `high`).
+- [ ] `--persist` flag to write findings YAML. **Not done as a flag**: findings are always persisted (`RunOptions.persist` is hardcoded `true`); the `--no-persist` branch in `runner.rs` is inert.
 
-## Phase 4 — Distribution (2 days estimate)
+## Phase 4 — Distribution ◐ mostly complete
 
-- [ ] GitHub Actions release workflow: cross-compile to `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`, `windows-x64`. Attach to GitHub release.
-- [ ] Install script: `curl -fsSL https://.../install.sh | sh` picks the right binary.
-- [ ] `examples/.github/workflows/codeup-daily.yml` — daily scheduled scan reference recipe.
-- [ ] `examples/.github/workflows/codeup-pr-deterministic.yml` — free per-PR safety net.
-- [ ] README rewrite with installation + recipes.
+- [x] GitHub Actions release workflow — cross-compiles `linux x86_64`, `linux aarch64`, `macos x86_64`, `macos aarch64`; attaches to the GitHub release. **Windows target not yet added.**
+- [x] Install script: `scripts/install.sh` — `curl -fsSL … | sh` picks the right binary (linux + macos).
+- [ ] `examples/.github/workflows/codeup-daily.yml` + `codeup-pr-deterministic.yml`. **Not done as files** — the README's GitHub Actions section carries an inline recipe instead.
+- [x] README — installation + recipes (and an MCP usage section).
 
-## Phase 5 — VS Code extension delegation (separate repo, separate work)
+## Phase 5 — VS Code extension delegation (separate repo) — out of scope
 
-The VS Code extension at `codeup-vscx` will be refactored to invoke the Rust binary for scans, watching `.codeup/findings/` for changes. Tracked separately in that repo. Out of scope for this CLI.
+The VS Code extension at `codeup-vscx` will be refactored to invoke the Rust binary. Tracked separately in that repo; out of scope for this CLI.
+
+## Addendum — MCP server (`codeup mcp`) ✅ P0–P2 built, P3 pending
+
+Built after the original phases: a local MCP stdio server exposing the analyzer to MCP hosts with no provider key, with the catalogue review running on the host's model via MCP sampling. **Full status (what's done / not done, including the sampling-support findings) lives in [PLAN-MCP.md](PLAN-MCP.md).** Summary: P0 (shared review module) + P1 (keyless tools) + P2 (sampling review) implemented and verified; P3 (skill capability-ladder, `mcp install` helper, registry submission, sampling cache) not done.
 
 ## Cross-cutting
 
-- **Testing strategy**: unit tests per module, plus a `tests/` integration suite that runs the binary against fixture workspaces and asserts output. Snapshot-test SARIF output against the official schema.
-- **CI**: `cargo build --release`, `cargo test`, `cargo clippy -- -D warnings`, `cargo audit`, `cargo deny` (license + dep policy).
-- **Versioning**: starts at 0.1.0; reach 1.0.0 when phase 1-3 are feature-complete vs the TS extension.
+- **Testing strategy**: unit tests per module (100 across the workspace), plus the MCP server smoke-tested end-to-end. A dedicated `tests/` integration suite running the binary against fixture workspaces is **not yet** built.
+- **CI**: `cargo build --release`, `cargo test`, `cargo clippy` run; `cargo audit` / `cargo deny` **not yet** wired.
+- **Versioning**: at 0.2.1. Reach 1.0.0 when phases 1–3 are feature-complete vs the TS extension (the Phase 2/3 gaps above are what stand between here and that).
 
 ## Open questions
 
-1. Tool-use through GitHub Models for Claude — has anyone verified Codeup's `report_finding` schema round-trips correctly through the proxy? Spike before depending on it.
-2. Cache invalidation across binary versions — bump the cache key when the binary version changes? Or keep keyed only on (contentHash, catalogueHash, model, neighborsKey, knowledgeKey) as today?
-3. .codeup directory format compatibility — when this CLI writes findings YAML, the existing VS Code extension must be able to read them and vice versa. Need a conformance test that round-trips fixtures both ways.
+1. **Tool-use through GitHub Models for Claude** — has anyone verified Codeup's `report_finding` schema round-trips correctly through the proxy? **Still unverified.** Spike before depending on it.
+2. **Cache invalidation across binary versions** — the cache key is still `(contentHash, catalogueHash, model, neighborsKey, knowledgeKey)` with no binary-version component. **Open**: decide whether to bump on version change.
+3. **.codeup directory format compatibility** — round-trip conformance test between this CLI and the VS Code extension. **Open**: no dedicated conformance test exists yet (the shared SCHEMA.md + quoted-timestamp handling is the current safeguard).
