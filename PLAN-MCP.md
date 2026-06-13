@@ -268,6 +268,31 @@ helper that writes the right config.
   dependency surface minimal (consistent with the rest of codeup). Only tokio
   features `io-std`/`sync`/`time` were added.
 
+### DDD pass (branch `mcp`, follow-up to the initial implementation)
+
+Reviewed against *Rediscovering Domain-Driven Design, one MCP server at a time*
+(Bounded Context + Anti-Corruption Layer). Three improvements landed:
+
+- **ACL / single orchestrator:** the per-file review use-case was extracted into
+  `review::review_workspace` behind a `FileReviewer` port (a dyn-compatible trait,
+  `BoxFuture`-based, no async-trait dep). The CLI supplies `ToolUseReviewer`
+  (provider tool-use); the MCP server supplies `SamplingReviewer` (host sampling).
+  The tool layer is now a thin adapter — domain orchestration (file selection,
+  neighbour context, persistence, telemetry) lives in one place, used by both
+  `codeup scan` and `codeup_review`. The use-case is unit-tested with a fake
+  reviewer that never touches an LLM (the article's testability/replaceability win).
+- **One aggregate constructor:** `analyzer::make_finding(file, content_hash, …)` is
+  the single place a `Finding` is built (stable-id derivation + severity→priority +
+  history). The MCP `build_finding` duplicate was deleted; sampling, save, and the
+  CLI all go through it, so the invariant can't drift between ingress paths.
+- **Bounded-context fence:** per-tool `root` arguments are LLM-supplied, so
+  `resolve_root` now accepts only the server's launch workspace or a descendant
+  (canonicalized) — closing an injection-driven path to read/scan/write outside
+  the workspace the host scoped the server to.
+
+Not done (deliberately): splitting the server into multiple bounded contexts (it is
+already one coherent domain) or renaming tools.
+
 - **Per-file sampling cache (deferred):** the CLI analyzer keys an on-disk cache
   by content hash; `codeup_review` does not yet reuse it, so a re-review
   re-samples unchanged files. PLAN §"How `codeup_review` consumes host tokens"

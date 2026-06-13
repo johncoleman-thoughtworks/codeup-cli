@@ -4,7 +4,9 @@
 
 use crate::cache::{AnalysisCache, ReportedFinding};
 use crate::llm::{LLMAnalyzeRequest, LLMClient, ToolDefinition};
+use crate::review::{FileReviewOutcome, FileReviewRequest, FileReviewer};
 use anyhow::{Context, Result};
+use futures::future::BoxFuture;
 use codeup_core::cache::analysis_cache_key;
 use codeup_core::catalogue::{Catalogue, CataloguePattern, DefaultSeverity};
 use codeup_core::knowledge::{format_for_prompt, relevant_for, KnowledgeSnapshot};
@@ -13,7 +15,7 @@ use codeup_core::schema::{Finding, FindingLocation, HistoryEvent, Priority, Seve
 use sha2::{Digest, Sha256};
 
 const MAX_OUTPUT_TOKENS: u32 = 2048;
-const MAX_FILE_CHARS: usize = 60_000;
+pub(crate) const MAX_FILE_CHARS: usize = 60_000;
 const MAX_NEIGHBOR_CHARS: usize = 8_000;
 pub const MAX_NEIGHBORS: usize = 6;
 
@@ -62,7 +64,39 @@ pub struct AnalyzeResult {
     pub file: String,
     pub findings: Vec<Finding>,
     pub from_cache: bool,
-    pub skipped: Option<&'static str>,
+}
+
+/// The tool-use `FileReviewer` adapter: produces findings via the
+/// configured LLM provider's `report_finding` tool-calls (with on-disk
+/// caching). This is the CLI's path; it plugs into `review::review_workspace`
+/// exactly like the MCP server's sampling adapter, so the file-iteration /
+/// neighbour / persistence orchestration lives in one place for both.
+pub(crate) struct ToolUseReviewer<'a> {
+    pub catalogue: &'a Catalogue,
+    pub knowledge: &'a KnowledgeSnapshot,
+    pub custom_patterns: &'a [CataloguePattern],
+    pub cache: &'a AnalysisCache,
+    pub client: &'a LLMClient,
+}
+
+impl FileReviewer for ToolUseReviewer<'_> {
+    fn review_file<'a>(
+        &'a self,
+        request: FileReviewRequest<'a>,
+        now: &'a str,
+    ) -> BoxFuture<'a, Result<FileReviewOutcome>> {
+        Box::pin(async move {
+            let ctx = AnalyzeContext {
+                catalogue: self.catalogue,
+                knowledge: self.knowledge,
+                custom_patterns: self.custom_patterns,
+                cache: self.cache,
+                client: self.client,
+            };
+            let res = analyze_file(request.entry, request.text, ctx, request.neighbors, now).await?;
+            Ok(FileReviewOutcome { findings: res.findings, from_cache: res.from_cache })
+        })
+    }
 }
 
 pub async fn analyze_file(
@@ -72,29 +106,15 @@ pub async fn analyze_file(
     neighbors: &[NeighborFile],
     now: &str,
 ) -> Result<AnalyzeResult> {
+    // Defensive guards. `review::review_workspace` already filters these out
+    // before calling, but analyze_file is also a standalone entry point, so
+    // it stays self-protecting: empty findings on a non-reviewable file.
     let patterns = codeup_core::catalogue::patterns_for_language(ctx.catalogue, &entry.language);
-    if patterns.is_empty() {
+    if patterns.is_empty() || text.contains('\0') || text.len() > MAX_FILE_CHARS {
         return Ok(AnalyzeResult {
             file: entry.path.clone(),
             findings: vec![],
             from_cache: false,
-            skipped: Some("no-patterns"),
-        });
-    }
-    if text.contains('\0') {
-        return Ok(AnalyzeResult {
-            file: entry.path.clone(),
-            findings: vec![],
-            from_cache: false,
-            skipped: Some("binary"),
-        });
-    }
-    if text.len() > MAX_FILE_CHARS {
-        return Ok(AnalyzeResult {
-            file: entry.path.clone(),
-            findings: vec![],
-            from_cache: false,
-            skipped: Some("too-large"),
         });
     }
 
@@ -147,14 +167,13 @@ pub async fn analyze_file(
 
     let findings: Vec<Finding> = reported
         .into_iter()
-        .map(|r| make_finding(entry, r, &model, now))
+        .map(|r| make_finding(&entry.path, Some(entry.content_hash.clone()), r, &model, now))
         .collect();
 
     Ok(AnalyzeResult {
         file: entry.path.clone(),
         findings,
         from_cache: false, // we always re-serialize, but findings round-tripped through cache when present
-        skipped: None,
     })
 }
 
@@ -242,8 +261,21 @@ pub(crate) fn validate_reported(input: &serde_json::Value, patterns: &[&Catalogu
     })
 }
 
-pub(crate) fn make_finding(entry: &FileEntry, r: ReportedFinding, model: &str, now: &str) -> Finding {
-    let id = stable_id(&entry.path, &r.category, r.line);
+/// The single domain constructor for a `Finding` from a validated
+/// `ReportedFinding`. Both ingress paths — the CLI's tool-use analyzer and
+/// the MCP server (sampling review + host-delegation save) — go through
+/// here, so the aggregate invariant (stable id derivation, severity →
+/// priority mapping, history seeding) lives in exactly one place and can't
+/// drift between them. `content_hash` is `Some` when the file was read
+/// (review paths) and `None` when only a path is known (rare save paths).
+pub(crate) fn make_finding(
+    file: &str,
+    content_hash: Option<String>,
+    r: ReportedFinding,
+    model: &str,
+    now: &str,
+) -> Finding {
+    let id = stable_id(file, &r.category, r.line);
     let severity = match r.severity.as_str() {
         "high" => Severity::High,
         "low" => Severity::Low,
@@ -262,11 +294,11 @@ pub(crate) fn make_finding(entry: &FileEntry, r: ReportedFinding, model: &str, n
         status: Status::Unconfirmed,
         priority,
         location: FindingLocation {
-            file: entry.path.clone(),
+            file: file.to_string(),
             line: Some(r.line),
             end_line: r.end_line,
             ast_path: None,
-            content_hash: Some(entry.content_hash.clone()),
+            content_hash,
         },
         explanation: r.explanation,
         suggested_remediation: r.suggested_remediation,

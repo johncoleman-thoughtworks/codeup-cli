@@ -8,14 +8,15 @@
 
 use super::{sampling, ServerCtx};
 use crate::analyzer;
-use crate::review;
+use crate::review::{self, FileReviewOutcome, FileReviewRequest, FileReviewer};
 use crate::runner::{self, RunOptions};
 use crate::store::FindingsStore;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use codeup_core::catalogue::{load_catalogue, patterns_for_language, Catalogue, CataloguePattern, DefaultSeverity};
 use codeup_core::scanner::graph::{build_graph, neighbors_of};
 use codeup_core::scanner::scan_workspace;
-use codeup_core::schema::{Finding, FindingLocation, HistoryEvent, Priority, Severity, Status};
+use codeup_core::schema::Finding;
+use futures::future::BoxFuture;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -295,7 +296,9 @@ fn save_findings(ctx: &ServerCtx, args: Value) -> Result<Value> {
             continue;
         };
         let content_hash = content_hash_of(&root, file);
-        let finding = build_finding(file, reported, &detected_by, &now, content_hash);
+        // Same domain constructor the CLI and sampling paths use — one
+        // place for stable-id derivation and the rest of the invariant.
+        let finding = analyzer::make_finding(file, content_hash, reported, &detected_by, &now);
         match store.upsert_from_analysis(finding) {
             Ok(f) => saved.push(f.id.clone()),
             Err(e) => rejected.push(json!({ "reason": format!("{e}"), "file": file })),
@@ -356,83 +359,110 @@ async fn review_tool(ctx: &ServerCtx, args: Value) -> Result<Value> {
         return Ok(super::protocol::text_content(pretty(&summary)));
     }
 
-    // Host-tokens LLM pass via sampling.
-    let (catalogue, custom) = load_catalogue_for(&root)?;
+    // Host-tokens LLM pass via sampling. Same orchestrator the CLI uses —
+    // we only supply the sampling adapter as the `FileReviewer` port.
+    let (catalogue, _custom) = load_catalogue_for(&root)?;
     let index = scan_workspace(&root, now.clone()).context("scanning workspace")?;
     let graph = build_graph(&index);
-    let knowledge_snapshot = load_knowledge_snapshot(&root)?;
-
+    let knowledge = load_knowledge_snapshot(&root)?;
     let mut store = FindingsStore::load(&root).context("loading .codeup/findings")?;
-    let mut llm_findings = 0usize;
-    let mut llm_files = 0usize;
-    let mut errors: Vec<Value> = Vec::new();
 
-    for entry in &index.files {
-        if let Some(scope) = &scoped {
-            if !scope.iter().any(|p| p == &entry.path) {
-                continue;
-            }
-        }
-        let patterns = patterns_for_language(&catalogue, &entry.language);
-        if patterns.is_empty() {
-            continue;
-        }
-        let bytes = match std::fs::read(root.join(&entry.path)) {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-        let text = match String::from_utf8(bytes) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if text.len() > 60_000 {
-            continue;
-        }
-
-        let neighbors = runner::gather_neighbors_pub(&root, entry, &graph, &index);
-        let relevant = codeup_core::knowledge::relevant_for(&entry.path, &knowledge_snapshot);
-        let system_prompt = analyzer::build_system_prompt(&patterns, !neighbors.is_empty(), &relevant);
-        let user_prompt = format!(
-            "{}{}",
-            analyzer::build_user_prompt(entry, &text, &neighbors),
-            review::SAMPLING_OUTPUT_INSTRUCTION
-        );
-
-        match sampling::create_message(ctx, &system_prompt, &user_prompt, review::SAMPLING_MAX_TOKENS).await {
-            Ok(outcome) => {
-                llm_files += 1;
-                let detected_by = outcome.model.unwrap_or_else(|| "codeup-mcp:host-sampling".to_string());
-                let reported = review::parse_reported_findings(&outcome.text, &patterns);
-                for r in reported {
-                    let content_hash = Some(entry.content_hash.clone());
-                    let finding = build_finding(&entry.path, r, &detected_by, &now, content_hash);
-                    if store.upsert_from_analysis(finding).is_ok() {
-                        llm_findings += 1;
-                    }
-                }
-            }
-            Err(e) => {
-                errors.push(json!({ "file": entry.path, "error": format!("{e}") }));
-            }
-        }
-    }
+    let reviewer = SamplingReviewer { ctx };
+    let llm = review::review_workspace(
+        &root,
+        scoped.as_deref(),
+        &catalogue,
+        &index,
+        &graph,
+        &knowledge,
+        &reviewer,
+        &mut store,
+        &now,
+    )
+    .await?;
 
     summary["llm"] = json!({
-        "filesReviewed": llm_files,
-        "findings": llm_findings,
-        "errors": errors,
+        "filesReviewed": llm.files_scanned,
+        "findings": llm.findings_persisted,
+        "filesSkipped": llm.files_skipped,
+        "errors": llm.errors.iter().map(|(f, e)| json!({ "file": f, "error": e })).collect::<Vec<_>>(),
     });
-    let _ = custom; // custom patterns already merged into `catalogue`
     Ok(super::protocol::text_content(pretty(&summary)))
+}
+
+/// The host-sampling `FileReviewer`: produces a file's findings by asking
+/// the host to run a completion on its own model (no API key), then parsing
+/// the JSON-in-text result through the same catalogue validation the CLI's
+/// tool-use path uses. Plugs into `review::review_workspace` exactly like
+/// the CLI's `ToolUseReviewer`.
+struct SamplingReviewer<'a> {
+    ctx: &'a ServerCtx,
+}
+
+impl FileReviewer for SamplingReviewer<'_> {
+    fn review_file<'a>(
+        &'a self,
+        request: FileReviewRequest<'a>,
+        now: &'a str,
+    ) -> BoxFuture<'a, Result<FileReviewOutcome>> {
+        Box::pin(async move {
+            let system_prompt =
+                analyzer::build_system_prompt(request.patterns, !request.neighbors.is_empty(), request.relevant);
+            let user_prompt = format!(
+                "{}{}",
+                analyzer::build_user_prompt(request.entry, request.text, request.neighbors),
+                review::SAMPLING_OUTPUT_INSTRUCTION
+            );
+            let outcome =
+                sampling::create_message(self.ctx, &system_prompt, &user_prompt, review::SAMPLING_MAX_TOKENS)
+                    .await?;
+            let detected_by = outcome
+                .model
+                .unwrap_or_else(|| "codeup-mcp:host-sampling".to_string());
+            let findings = review::parse_reported_findings(&outcome.text, request.patterns)
+                .into_iter()
+                .map(|r| {
+                    analyzer::make_finding(
+                        &request.entry.path,
+                        Some(request.entry.content_hash.clone()),
+                        r,
+                        &detected_by,
+                        now,
+                    )
+                })
+                .collect();
+            Ok(FileReviewOutcome { findings, from_cache: false })
+        })
+    }
 }
 
 // ---- helpers -------------------------------------------------------------
 
+/// Resolve the workspace root for a tool call, enforcing the server's
+/// bounded context. The server owns exactly the workspace it was launched
+/// for (`ctx.root`, canonicalized). A `root` argument is LLM-supplied and
+/// could be steered by prompt injection — so a provided `root` is accepted
+/// only if it canonicalizes to `ctx.root` or a descendant. This keeps the
+/// blast radius equal to the workspace the host scoped the server to:
+/// no reading, scanning, or `.codeup/` writing outside that boundary.
 fn resolve_root(ctx: &ServerCtx, args: &Value) -> Result<PathBuf> {
-    match args.get("root").and_then(|v| v.as_str()) {
-        Some(r) if !r.is_empty() => Ok(PathBuf::from(r)),
-        _ => Ok(ctx.root.clone()),
+    let Some(raw) = args
+        .get("root")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(ctx.root.clone());
+    };
+    let canon = PathBuf::from(raw)
+        .canonicalize()
+        .with_context(|| format!("resolving root {raw:?}"))?;
+    if !canon.starts_with(&ctx.root) {
+        bail!(
+            "root {raw:?} is outside this server's workspace ({}). The codeup MCP server is scoped to a single workspace; launch a separate server for a different root.",
+            ctx.root.display()
+        );
     }
+    Ok(canon)
 }
 
 fn load_catalogue_for(root: &Path) -> Result<(Catalogue, Vec<CataloguePattern>)> {
@@ -444,56 +474,6 @@ fn load_catalogue_for(root: &Path) -> Result<(Catalogue, Vec<CataloguePattern>)>
 fn load_knowledge_snapshot(root: &Path) -> Result<codeup_core::knowledge::KnowledgeSnapshot> {
     let (snap, _custom) = crate::store::load_knowledge(root).context("loading workspace knowledge")?;
     Ok(snap)
-}
-
-/// Build a `Finding` from a validated `ReportedFinding`, deriving the id
-/// with the same `stable_id` the CLI uses so re-runs reuse the same file.
-fn build_finding(
-    file: &str,
-    r: crate::cache::ReportedFinding,
-    detected_by: &str,
-    now: &str,
-    content_hash: Option<String>,
-) -> Finding {
-    let id = analyzer::stable_id(file, &r.category, r.line);
-    let severity = match r.severity.as_str() {
-        "high" => Severity::High,
-        "low" => Severity::Low,
-        _ => Severity::Medium,
-    };
-    let priority = match severity {
-        Severity::Low => Priority::Low,
-        Severity::Medium => Priority::Medium,
-        Severity::High => Priority::High,
-    };
-    Finding {
-        schema_version: 1,
-        id,
-        category: r.category,
-        severity,
-        status: Status::Unconfirmed,
-        priority,
-        location: FindingLocation {
-            file: file.to_string(),
-            line: Some(r.line),
-            end_line: r.end_line,
-            ast_path: None,
-            content_hash,
-        },
-        explanation: r.explanation,
-        suggested_remediation: r.suggested_remediation,
-        detected_at: now.to_string(),
-        detected_by: detected_by.to_string(),
-        confidence: Some(r.confidence),
-        history: vec![HistoryEvent {
-            timestamp: now.to_string(),
-            event: "detected".into(),
-            by: None,
-            from: None,
-            to: None,
-            note: None,
-        }],
-    }
 }
 
 fn content_hash_of(root: &Path, file: &str) -> Option<String> {

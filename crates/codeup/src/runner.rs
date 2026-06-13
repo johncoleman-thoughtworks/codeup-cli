@@ -1,15 +1,16 @@
 //! Scan orchestrator. Mirrors TS `scan/runner.ts` but stripped of
 //! VS Code progress UI — output channel is structured log lines.
 
-use crate::analyzer::{analyze_file, AnalyzeContext, AnalyzeResult, NeighborFile, NeighborRelation, MAX_NEIGHBORS};
+use crate::analyzer::ToolUseReviewer;
 use crate::cache::AnalysisCache;
 use crate::llm::LLMClient;
+use crate::review::review_workspace;
 use crate::store::{load_intent, load_knowledge, FindingsStore};
 use anyhow::Result;
-use codeup_core::catalogue::{load_catalogue, patterns_for_language};
+use codeup_core::catalogue::load_catalogue;
 use codeup_core::intent::{cycle_findings, layer_violations};
 use codeup_core::quality::{oversized_files, SizeCheckOptions};
-use codeup_core::scanner::graph::{build_graph, find_cycles, neighbors_of, DependencyGraph};
+use codeup_core::scanner::graph::{build_graph, find_cycles, DependencyGraph};
 use codeup_core::scanner::{scan_workspace, ProjectIndex};
 use codeup_core::schema::Finding;
 use std::path::{Path, PathBuf};
@@ -82,72 +83,40 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
     let mut llm_files_cached = 0;
     let mut llm_files_skipped = 0;
 
-    // LLM pass — skipped when deterministic-only or no client.
+    // LLM pass — skipped when deterministic-only or no client. The
+    // file-iteration / neighbour / persistence orchestration lives in
+    // `review::review_workspace`; here we just supply the tool-use adapter.
+    // The MCP server supplies a sampling adapter to the same orchestrator.
     if !opts.deterministic_only {
         if let Some(client) = opts.client {
             let cache = AnalysisCache::new(opts.root);
-            let supported: Vec<&codeup_core::scanner::FileEntry> = index
-                .files
-                .iter()
-                .filter(|f| !patterns_for_language(&catalogue, &f.language).is_empty())
-                .collect();
             tracing::info!(
-                "LLM pass: {} candidate files, provider={}, model={}",
-                supported.len(),
+                "LLM pass: provider={}, model={}",
                 client.provider().as_str(),
                 client.model()
             );
-
-            for entry in &supported {
-                let bytes = match std::fs::read(opts.root.join(&entry.path)) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        tracing::warn!("{}: read failed: {e:#}", entry.path);
-                        continue;
-                    }
-                };
-                let text = match std::str::from_utf8(&bytes) {
-                    Ok(t) => t.to_string(),
-                    Err(_) => {
-                        llm_files_skipped += 1;
-                        continue;
-                    }
-                };
-                let neighbors = gather_neighbors(opts.root, entry, &graph, &index);
-                let ctx = AnalyzeContext {
-                    catalogue: &catalogue,
-                    knowledge: &knowledge,
-                    custom_patterns: &custom_patterns,
-                    cache: &cache,
-                    client,
-                };
-                match analyze_file(entry, &text, ctx, &neighbors, opts.now).await {
-                    Ok(AnalyzeResult { findings, skipped, from_cache, .. }) => {
-                        if let Some(reason) = skipped {
-                            llm_files_skipped += 1;
-                            tracing::debug!("{}: skipped ({})", entry.path, reason);
-                            continue;
-                        }
-                        if from_cache {
-                            llm_files_cached += 1;
-                        } else {
-                            llm_files_scanned += 1;
-                        }
-                        for f in findings {
-                            let stored = store.upsert_from_analysis(f)?;
-                            all_new.push(stored.clone());
-                        }
-                    }
-                    Err(e) => {
-                        // `{e:#}` walks anyhow's source chain so the HTTP /
-                        // provider context isn't swallowed — without this
-                        // the user just sees "LLM analyze call" and has no
-                        // signal whether the issue is auth, model name,
-                        // rate-limit, or schema decode.
-                        tracing::warn!("{}: analyze failed: {e:#}", entry.path);
-                    }
-                }
-            }
+            let reviewer = ToolUseReviewer {
+                catalogue: &catalogue,
+                knowledge: &knowledge,
+                custom_patterns: &custom_patterns,
+                cache: &cache,
+                client,
+            };
+            let llm = review_workspace(
+                opts.root,
+                None,
+                &catalogue,
+                &index,
+                &graph,
+                &knowledge,
+                &reviewer,
+                &mut store,
+                opts.now,
+            )
+            .await?;
+            llm_files_scanned = llm.files_scanned;
+            llm_files_cached = llm.files_cached;
+            llm_files_skipped = llm.files_skipped;
         } else {
             tracing::info!("no LLM client; deterministic-only run");
         }
@@ -177,71 +146,4 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
         llm_files_cached,
         llm_files_skipped,
     })
-}
-
-/// Public wrapper so the MCP server can build the same neighbour context
-/// the CLI's LLM pass uses (sharpens cross-file findings under sampling).
-pub fn gather_neighbors_pub(
-    root: &Path,
-    entry: &codeup_core::scanner::FileEntry,
-    graph: &DependencyGraph,
-    index: &ProjectIndex,
-) -> Vec<NeighborFile> {
-    gather_neighbors(root, entry, graph, index)
-}
-
-fn gather_neighbors(
-    root: &Path,
-    entry: &codeup_core::scanner::FileEntry,
-    graph: &DependencyGraph,
-    index: &ProjectIndex,
-) -> Vec<NeighborFile> {
-    let (imports, imported_by) = neighbors_of(graph, &entry.path);
-    let mut picks: Vec<(String, NeighborRelation)> = Vec::new();
-    let ia: Vec<&str> = imports.into_iter().take(MAX_NEIGHBORS).collect();
-    let ib: Vec<&str> = imported_by.into_iter().take(MAX_NEIGHBORS).collect();
-    for i in 0..MAX_NEIGHBORS {
-        if picks.len() >= MAX_NEIGHBORS { break; }
-        if let Some(p) = ia.get(i) {
-            picks.push((p.to_string(), NeighborRelation::Imports));
-        }
-        if picks.len() >= MAX_NEIGHBORS { break; }
-        if let Some(p) = ib.get(i) {
-            picks.push((p.to_string(), NeighborRelation::ImportedBy));
-        }
-    }
-    // Same-package fallback (JVM/.NET case).
-    if picks.len() < MAX_NEIGHBORS {
-        let taken: std::collections::HashSet<&str> = picks.iter().map(|(p, _)| p.as_str()).chain(std::iter::once(entry.path.as_str())).collect();
-        let dir = entry.path.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-        let mut siblings: Vec<&codeup_core::scanner::FileEntry> = index
-            .files
-            .iter()
-            .filter(|f| !taken.contains(f.path.as_str()))
-            .filter(|f| f.path.rsplit_once('/').map(|(d, _)| d).unwrap_or("") == dir)
-            .filter(|f| f.language == entry.language)
-            .collect();
-        siblings.sort_by(|a, b| a.path.cmp(&b.path));
-        for sib in siblings {
-            if picks.len() >= MAX_NEIGHBORS { break; }
-            picks.push((sib.path.clone(), NeighborRelation::SamePackage));
-        }
-    }
-
-    let by_path: std::collections::HashMap<&str, &codeup_core::scanner::FileEntry> =
-        index.files.iter().map(|f| (f.path.as_str(), f)).collect();
-    let mut out = Vec::new();
-    for (path, relation) in picks {
-        let Some(e) = by_path.get(path.as_str()) else { continue };
-        let bytes = match std::fs::read(root.join(&path)) {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-        let text = match String::from_utf8(bytes) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        out.push(NeighborFile { path, language: e.language.clone(), text, relation });
-    }
-    out
 }
