@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: comment-rot-295d21f4089a
+category: comment-rot
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/llm/retry.rs
+  line: 42
+  contentHash: f2c45e9e5eef0b33866d3127af03d401638ec5eb9f28a5c3107764fe8ea248a4
+explanation: 'The doc-comment on `backoff_seconds` says "2, 4, 8, 16, 32" (implying 1-indexed attempts 1–5), but the implementation is `1u64 << attempt`. For attempt=1 this yields 2, for attempt=2 it yields 4, etc. — the comment is consistent with the output, but the doc says "1-indexed" while the shift is actually `2^attempt`, meaning `attempt=0` would give 1 second. The test starts at attempt=1, but callers could accidentally pass 0 and get an undocumented 1-second sleep. More critically, the comment says the sequence ends at 32 (attempt 5), yet the shift for attempt=5 is `1<<5 = 32`, which is fine — however the comment does not match "1-indexed: 2, 4, 8, 16, 32" precisely because at attempt=5 it yields 32, not capped to `MAX_BACKOFF_SECONDS`. The backoff table in the module doc comment at the top says "2s, 4s, 8s, 16s, 32s" and "capped at 60s", but the `backoff_seconds` function itself performs no capping — that cap is applied at call sites. A reader of only this function''s doc comment would believe the cap is internal.'
+suggestedRemediation: 'Clarify the doc comment: note that the function returns the raw (uncapped) value and that callers are responsible for applying `MAX_BACKOFF_SECONDS`. Alternatively, apply the cap inside `backoff_seconds` itself so the implementation matches the module-level contract description.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.6
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

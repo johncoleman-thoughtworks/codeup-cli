@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: configuration-hell-96e81cccacfc
+category: configuration-hell
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: .github/workflows/codeup.yml
+  line: 8
+  endLine: 100
+  contentHash: bbfe8e63ee629708d8b2768a937d4ad7519498bd4a6e285f3f38047625162d70
+explanation: 'The effective LLM provider and model are determined by at least four overlapping, partially-documented layers: (1) the presence/absence of the `ANTHROPIC_API_KEY` repo secret, (2) the `inputs.provider` workflow_dispatch choice, (3) the `CODEUP_MODEL` env var conditionally set in the shell script, and (4) the CLI''s own internal auto-resolution logic. The interaction rules are described only in prose comments spread across the file, and the effective runtime configuration (which provider is actually used, with which model) cannot be determined by reading any single declaration — it requires mentally evaluating all four layers simultaneously, including the CLI''s undocumented fallback behaviour. This makes it difficult to audit, reproduce, or change the configuration without unintentional side effects.'
+suggestedRemediation: Collapse the resolution into a single, explicit layer in the workflow. Define a composite step or reusable action that takes `provider`, `anthropic_key_present`, and `model` as inputs and emits a single canonical `CODEUP_PROVIDER` and `CODEUP_MODEL` output. The CLI should then accept those two values directly rather than performing its own auto-resolution. This makes the effective configuration visible in one place and eliminates the layered override problem.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.72
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

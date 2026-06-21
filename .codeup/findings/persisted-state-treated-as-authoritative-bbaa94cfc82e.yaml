@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-bbaa94cfc82e
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/store.rs
+  line: 270
+  endLine: 283
+  contentHash: ae4cc35208e4d75469d195e936fef1e993f7b839656af7c45f70ff6659d61f83
+explanation: 'The `load` function resets `Dismissed` and `Fixed` statuses on load specifically to prevent a planted dismissal from suppressing a re-detected finding. However, `Unconfirmed` and `Confirmed` statuses are still honoured from disk as-is. A malicious actor who can write to `.codeup/findings/` could plant a record with `status: confirmed` and a crafted `id`/`location` that would pass the `stable_id` check (same file, category, line) to pre-seed a finding as `Confirmed` before the LLM even runs, potentially amplifying its apparent trust level or bypassing workflows that only act on `Unconfirmed` findings.'
+suggestedRemediation: 'Extend the reset logic to also reset `Confirmed` back to `Unconfirmed` on load for the same reason: persisted security state (including confirmation) should not be honoured without re-attestation. Only status transitions performed interactively through a trusted surface should persist across reloads.'
+detectedAt: "2026-06-21T11:49:58.408Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.5
+history:
+- timestamp: "2026-06-21T11:49:58.408Z"
+  event: detected

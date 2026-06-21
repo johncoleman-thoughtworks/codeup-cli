@@ -109,7 +109,12 @@ pub async fn analyze_file(
     );
 
     let relevant = relevant_for(&entry.path, ctx.knowledge);
-    let reported_raw = if let Some(hit) = ctx.cache.get(&cache_key) {
+    let cache_hit = ctx.cache.get(&cache_key).unwrap_or_else(|e| {
+        tracing::warn!("cache read error for {}: {e:#}", entry.path);
+        None
+    });
+    let served_from_cache = cache_hit.is_some();
+    let reported_raw = if let Some(hit) = cache_hit {
         hit.findings
     } else {
         let system_prompt = build_system_prompt(&patterns, !neighbors.is_empty(), &relevant);
@@ -153,7 +158,7 @@ pub async fn analyze_file(
     Ok(AnalyzeResult {
         file: entry.path.clone(),
         findings,
-        from_cache: false, // we always re-serialize, but findings round-tripped through cache when present
+        from_cache: served_from_cache,
         skipped: None,
     })
 }

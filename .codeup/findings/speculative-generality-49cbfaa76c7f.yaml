@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: speculative-generality-49cbfaa76c7f
+category: speculative-generality
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/llm/mod.rs
+  line: 56
+  contentHash: 21ed1976388c9922755a3817a4900c8b2fe228f7b3ba6be66c6035362167fec5
+explanation: The `LLMClient` enum acts as a hand-rolled trait object with a single method (`analyze`) that dispatches to two implementations. The module comment itself acknowledges this is specifically because "there are only ever two providers." While the enum-dispatch rationale (avoiding async-trait-object boilerplate) is pragmatic, the `provider()` and `model()` accessor methods on the enum are extra surface area that only makes sense if callers actually branch on provider identity at runtime — which is a form of speculative generality if those accessors aren't needed for core behavior. If new providers are added, each new arm must be added to every `match` in this enum, making it a shotgun-surgery target.
+suggestedRemediation: If `provider()` and `model()` are only used for logging/display purposes, consider whether they belong on the client at all or should be part of the `ResolvedProvider` struct (which already carries a `reason` string). If a third provider is ever added, evaluate whether the `async-trait` crate (or Rust's native async trait stabilization) has matured enough to warrant a trait-based dispatch instead.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.4
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

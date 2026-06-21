@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: copy-paste-programming-3ee8cd3ef526
+category: copy-paste-programming
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/llm/github_models.rs
+  line: 68
+  endLine: 112
+  contentHash: 286bbd1c1cd370a20e557d3dad93a7e46a9d2ac651e50e1a9f57d5fb60a70503
+explanation: The entire retry loop in `github_models.rs` (lines 68–112) is structurally identical to the one in `anthropic.rs`. Both files share the same attempt counter, the same `should_retry` / `retry_after_seconds` / `backoff_seconds` calls, the same `429` vs `5xx` branching, the same `tracing::warn!` format, and the same `MAX_BACKOFF_SECONDS` cap. The only difference is the provider name in the warning string. Even the comment ("Same retry shape as the Anthropic client") acknowledges the duplication. Any future change to the retry logic (e.g. changing the warning format, adding jitter, or changing the bail condition) must be applied to both files independently, which is exactly the drift risk copy-paste programming creates.
+suggestedRemediation: Extract the retry loop into a shared helper in `retry.rs` (already the home of the shared policy constants). The helper could accept the HTTP request builder (or a closure that produces a `reqwest::Response`) plus a provider label string for the warning message, and return the successful `Bytes` or an error. Both `anthropic.rs` and `github_models.rs` would then replace their loops with a single call to this helper.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.9
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

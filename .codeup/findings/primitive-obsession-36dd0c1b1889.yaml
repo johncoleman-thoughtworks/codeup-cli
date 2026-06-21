@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: primitive-obsession-36dd0c1b1889
+category: primitive-obsession
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup-core/src/scanner/walk.rs
+  line: 79
+  endLine: 88
+  contentHash: 670035ab43774f7e3fab04604e91359c9fde1933ad0ff5edb9a0e2c7be67e114
+explanation: '`FileEntry.language` is a plain `String` holding values like `"typescript"`, `"rust"`, `"python"` etc. The set of valid values is fixed and known at compile time (the exhaustive `match` in `language_for_ext`), but callers everywhere — including `graph.rs` and `imports.rs` — match on this string with no compiler enforcement. A typo in any match arm silently falls through to a no-op branch.'
+suggestedRemediation: Introduce a `Language` enum (or at least a newtype wrapping a validated string) and derive `Serialize`/`Deserialize` with the existing string representations. This gives exhaustiveness checking on match arms across `graph.rs` and `imports.rs`, and makes the contract explicit at the type level.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.65
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: copy-paste-programming-409291ce741f
+category: copy-paste-programming
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/scanner/graph.rs
+  line: 76
+  contentHash: 427c67b94cc9fd2e701aeca256f11ac77201fd0f94c7837a5505a72ab4c02b02
+explanation: The pattern `candidate.ends_with(&format!("/{dotted}{suffix}")) || candidate == &&*format!("{dotted}{suffix}")` appears identically (modulo the suffix variable) in both `resolve_jvm` (line 79) and `resolve_python` (lines 122–127). The `resolve_python` function even applies this double-check pattern twice — once for `.py` and once for `/__init__.py` — duplicating the logic rather than calling a shared helper. If this "matches workspace-relative path ending" check needs to change (e.g. to handle Windows-style separators), it must be updated in three places.
+suggestedRemediation: 'Extract a small helper `fn path_matches(candidate: &str, suffix: &str) -> bool { candidate.ends_with(&format!("/{suffix}")) || candidate == suffix }` and call it from both `resolve_jvm` and `resolve_python`. This also makes the intent ("does this candidate path correspond to this module path?") explicit and centrally documented.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.8
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

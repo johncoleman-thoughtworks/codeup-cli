@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: cognitive-complexity-4293dcdaf653
+category: cognitive-complexity
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/scanner/graph.rs
+  line: 182
+  contentHash: 427c67b94cc9fd2e701aeca256f11ac77201fd0f94c7837a5505a72ab4c02b02
+explanation: The `find_cycles` function is a 100+ line body that interleaves node enumeration, index/lowlink tracking, an explicit work-stack simulation of the recursive Tarjan algorithm, SCC emission, self-loop detection, and lowlink propagation. The nested `while let` + inner `if` chain around `frame.next_succ` with both `continue` and `pop` paths, the cloned `frame_succ` used only after the frame is popped, and the dual-path SCC emission (multi-node vs. self-loop) make it very difficult to follow in a single reading. While the iterative transformation of Tarjan is inherently complex, the concerns (frame management, index assignment, SCC root check, cycle emission) are interleaved rather than separated.
+suggestedRemediation: 'Extract helper functions: one for opening a new frame (`push_frame`), one for the SCC root check and component emission (`emit_component`), and one for the lowlink propagation step. Rename the `frame_succ` workaround to clarify why successors must be captured before the pop. Adding a short comment block at the top of the while-loop that labels the two phases ("advance to next unvisited successor" vs. "all successors done — check SCC root") would also substantially reduce cognitive load.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.75
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

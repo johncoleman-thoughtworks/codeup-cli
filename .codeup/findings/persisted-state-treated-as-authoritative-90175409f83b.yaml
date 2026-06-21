@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-90175409f83b
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/sarif.rs
+  line: 119
+  endLine: 153
+  contentHash: 6b0a2e49c191a6ad508a0948aea32326e5d2571765eaea0b12885d9d1a8caf0c
+explanation: 'The `render` function receives `findings: &[Finding]` and uses `f.id.as_str()` directly as the `codeupId/v1` partial fingerprint in SARIF output (line ~148). The `Finding` structs passed here originate from `store.produced_by_this_run()` in `runner.rs`, but the `id` field itself is populated from persisted YAML during `upsert_from_analysis`. While `runner.rs` has a comment noting it only emits findings "the current run actually re-detected," the SARIF renderer places no independent check on the `id` field''s contents — it trusts the value from the Finding as-is. If a maliciously crafted persisted YAML record managed to reach this code path with a fabricated `id`, it would appear in authoritative SARIF output as a genuine fingerprint, potentially causing suppressions or injections in GitHub Code Scanning.'
+suggestedRemediation: The SARIF renderer is downstream of the security boundary in `runner.rs`, so this is a defense-in-depth concern rather than a primary gap. However, since `partialFingerprints` are used by GitHub for deduplication and suppression, consider asserting that `f.id` matches the expected stable-id format (UUID or known pattern) before embedding it, and document the trust assumption explicitly.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.45
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

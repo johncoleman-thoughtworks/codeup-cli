@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: error-swallowing-77e63b8bc028
+category: error-swallowing
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/scanner/walk.rs
+  line: 166
+  endLine: 168
+  contentHash: 670035ab43774f7e3fab04604e91359c9fde1933ad0ff5edb9a0e2c7be67e114
+explanation: In `collect_ignore_files`, the `std::fs::read_dir` error is silently swallowed with `Err(_) => return Ok(())`. If a directory is unreadable due to a permissions issue or a broken mount, the function returns success with no entries and no warning, causing all `.gitignore` and `.codeupignore` files under that subtree to be silently missed. Callers will then apply incorrect ignore rules.
+suggestedRemediation: Add a `tracing::warn!` log at the point of the `read_dir` error so operators can diagnose unexpected ignore-rule gaps. Consider whether a permission error on a subdirectory should be escalated rather than silently ignored.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

@@ -14,6 +14,9 @@
 .env.*
 !.env.example
 
+# Claude Code local settings — developer convenience, not for CI
+.claude/settings.local.json
+
 # Codeup's own state if we ever run it against this repo
 .codeup/index/
 .codeup/cache/

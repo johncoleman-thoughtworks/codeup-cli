@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: primitive-obsession-0d03f2755291
+category: primitive-obsession
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/scanner/graph.rs
+  line: 8
+  contentHash: 427c67b94cc9fd2e701aeca256f11ac77201fd0f94c7837a5505a72ab4c02b02
+explanation: All node identifiers in `DependencyGraph` — including `edges`, `reverse`, and `unresolved` keys, plus the `Cycle.files` vec — are raw `String` values representing workspace-relative file paths. There is no `FilePath` newtype to distinguish a workspace-relative path from an absolute path, a raw import string, or an arbitrary string. Functions like `resolve_import` return `Option<String>` where the returned string is a workspace-relative path, indistinguishable at the type level from the `raw` import string passed in alongside it. This makes it easy to accidentally mix raw import strings with resolved paths in the graph data structures.
+suggestedRemediation: 'Introduce a `WorkspacePath(String)` newtype (or a type alias with a constructor that enforces the invariant) for workspace-relative paths. Use this type as the key in `DependencyGraph` maps and as the element type in `Cycle.files`. Keep `raw_imports: Vec<String>` as raw strings, making the resolution boundary explicit at the type level.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

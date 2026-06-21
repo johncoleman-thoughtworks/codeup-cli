@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: long-method-1640e3c97901
+category: long-method
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup-core/src/scanner/walk.rs
+  line: 218
+  endLine: 314
+  contentHash: 670035ab43774f7e3fab04604e91359c9fde1933ad0ff5edb9a0e2c7be67e114
+explanation: '`scan_workspace` spans roughly 90 lines and contains at least four distinct conceptual sections: (1) building matchers, (2) configuring and running the walker, (3) per-file metadata/hash/import extraction, and (4) sorting and constructing the final index. Each section could be extracted into a named helper, improving readability and testability. The method is noticeably longer than every other function in the file.'
+suggestedRemediation: Extract at least the per-file processing block (lines ~260–310) into a `process_file_entry(dent, root, defaults, codeup_ig, git_ig) -> Option<FileEntry>` helper, and consider extracting the walker construction into a `build_walker(root, ...) -> Walk` helper.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

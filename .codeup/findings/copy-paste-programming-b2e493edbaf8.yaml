@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: copy-paste-programming-b2e493edbaf8
+category: copy-paste-programming
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/llm/anthropic.rs
+  line: 48
+  endLine: 88
+  contentHash: 5d2add5ffd6c357ec82ea8e6cbac17dacf878b6b1bd5af4ae74b499b71968c08
+explanation: 'The entire retry loop (lines 48–88) in `AnthropicClient::analyze` is structurally identical to the retry loop in `GithubModelsClient::analyze` in the neighboring `github_models.rs`. Both loops duplicate the same logic: attempt counter, `should_retry` check, `retry_after_seconds`/`backoff_seconds` selection, `MAX_BACKOFF_SECONDS` cap, `tracing::warn!` with the same format, `tokio::time::sleep`, and the `bytes` extraction pattern. The comment on line 56 in `github_models.rs` even explicitly acknowledges "Same retry shape as the Anthropic client — see anthropic.rs for rationale." This is a textbook copy-paste: any change to the retry policy (e.g. adding jitter, changing the log format, handling a new status code) must be applied in two places and will inevitably drift.'
+suggestedRemediation: Extract the retry loop into the shared `retry.rs` module as a higher-order async function (e.g. `retry_request(http, build_request_fn) -> Result<Bytes>`) that accepts a closure producing a `RequestBuilder` and returns the raw bytes on success. Both `AnthropicClient` and `GithubModelsClient` call this helper, keeping provider-specific headers in their own closures while the retry/backoff/logging logic lives in one place.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.95
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: copy-paste-programming-525cd26da3dc
+category: copy-paste-programming
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup-core/src/quality.rs
+  line: 109
+  endLine: 113
+  contentHash: ace7622276e2aae699828a89ba0c06802dd9ff3c8c2bbea1b5df86e31483e61e
+explanation: 'The `stable_id` function in `quality.rs` (lines 109–113) is a near-identical copy of the `stable_id` function in the sibling `intent.rs` module. Both take `(category: &str, key: &str)`, hash `"{category}:{key}"` with SHA-256, and return `format!("{category}-{}", &hex[..12])`. The comment in `intent.rs` even explains the algorithm choice, which is absent here. This is textbook copy-paste duplication — a bug fix or algorithm change in one will not propagate to the other.'
+suggestedRemediation: Extract `stable_id` into a shared utility module (e.g. `crates/codeup-core/src/ids.rs` or a `util` submodule) and have both `quality.rs` and `intent.rs` import and call the shared version. This ensures a single locus for any future algorithm change.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.95
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

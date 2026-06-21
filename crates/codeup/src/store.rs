@@ -135,7 +135,7 @@ fn assert_no_symlink_ancestors(root: &Path, target: &Path) -> Result<()> {
 /// Create `dir` (and any missing ancestors) under `root`, refusing if
 /// any existing component on the way is a symlink. Mirrors create_dir_all
 /// but with symlink_metadata-checks instead of metadata-checks.
-fn safe_create_dir_all(root: &Path, dir: &Path) -> Result<()> {
+pub(crate) fn safe_create_dir_all(root: &Path, dir: &Path) -> Result<()> {
     assert_no_symlink_ancestors(root, dir)?;
     std::fs::create_dir_all(dir).with_context(|| format!("creating {dir:?}"))?;
     Ok(())
@@ -145,7 +145,7 @@ fn safe_create_dir_all(root: &Path, dir: &Path) -> Result<()> {
 /// exists as a symlink or if any path component is a symlink. Atomic via
 /// write-to-temp + rename; the temp file is opened with create_new so a
 /// concurrent attacker cannot race a symlink into the same name.
-fn safe_write_yaml(root: &Path, dir: &Path, filename: &str, body: &str) -> Result<()> {
+pub(crate) fn safe_write_yaml(root: &Path, dir: &Path, filename: &str, body: &str) -> Result<()> {
     safe_create_dir_all(root, dir)?;
     let final_path = dir.join(filename);
     // If destination exists, it must not be a symlink — we'd overwrite

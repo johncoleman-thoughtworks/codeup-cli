@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: external-artifact-without-integrity-verification-acdde6293a59
+category: external-artifact-without-integrity-verification
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: scripts/eval-catalogue.sh
+  line: 32
+  endLine: 38
+  contentHash: 5adecf8bd5e9f6a49dec3ac23859897edf12f3d1d38e8da8074d29dc50767134
+explanation: The script resolves the `codeup` binary by searching `PATH` (or falling back to `./target/release/codeup`) and executes it with full trust, including passing `ANTHROPIC_API_KEY` into its environment. No hash, signature, or any other provenance check is performed on the binary before execution. The sibling `install.sh` makes its own checksum verification optional (it silently skips when the `.sha256` sidecar is absent or when no `shasum`/`sha256sum` tool is available), so an attacker who compromises the binary in place — or plants a `codeup` binary earlier on `PATH` — gains both code-execution and secret-exfiltration capability without any detection by this script.
+suggestedRemediation: 'Pin the expected binary to a known-good SHA-256 hash stored separately from the binary (e.g. in a checked-in `.codeup.sha256` file) and verify it before execution: `actual=$(sha256sum "$CODEUP" | awk ''{print $1}''); [ "$actual" = "$PINNED_HASH" ] || { echo "codeup binary hash mismatch" >&2; exit 2; }`. Alternatively, install `codeup` via a package manager that enforces signature verification (e.g. `cargo install --locked`) and assert the installed version matches a pinned `CODEUP_VERSION` constant at the top of this script.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.55
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

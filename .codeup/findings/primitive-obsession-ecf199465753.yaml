@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: primitive-obsession-ecf199465753
+category: primitive-obsession
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/knowledge.rs
+  line: 17
+  endLine: 53
+  contentHash: fa6016a4eacdc5055f1c3dac1fdfe08e0e9bc2201315d332444aa5cc11d61ad5
+explanation: Domain concepts like `category` (a pattern identifier), `file_path_pattern` (a glob expression), `dismissed_at`/`confirmed_at` (timestamps), and `dismissed_by`/`confirmed_by` (user identifiers) are all represented as raw `String`. There is no type distinction between a plain file path (`file_path`) and a glob pattern (`file_path_pattern`), meaning they can be silently swapped, compared directly, or passed to the wrong API without the compiler catching it. The `matches_glob` function already demonstrates this risk — it must explicitly handle both exact and pattern matching because the type carries no information about which it is.
+suggestedRemediation: 'Introduce newtype wrappers: `GlobPattern(String)`, `FilePath(String)`, `Timestamp(String)`, `UserId(String)`. This makes the `matches_glob(file_path: &FilePath, pattern: &GlobPattern)` signature self-documenting and prevents callers from accidentally transposing arguments. The timestamp and user fields can share a type or be distinct depending on how they''re used downstream.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-908ab7bdf0c3
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/catalogue.rs
+  line: 46
+  endLine: 72
+  contentHash: 3135f17457847f67859e590ea944c502dfb49d1108759305b69332db7039fb9c
+explanation: 'The `load_catalogue` function accepts `overrides: &[CataloguePattern]` — patterns sourced from `.codeup/knowledge/patterns.yaml`, a file that lives in the project/workspace directory and is therefore writable by whoever controls the repo. These overrides are merged directly onto the default catalogue with no integrity check, signature verification, or ACL-restricted source. A contributor whose PR is checked out by CI can ship a `patterns.yaml` that overrides any pattern''s `hint`, `default_severity`, or `id`, and the merged catalogue will be treated as authoritative for all subsequent analysis of that run, including suppression decisions driven by pattern ids. The `hash` field is recomputed from the override content itself, so a planted override will produce a fresh but legitimate-looking hash and bypass any cache that uses it as a trust signal.'
+suggestedRemediation: 'Treat workspace overrides as lower-trust data: (a) restrict which fields overrides may change — e.g. allow `hint` and `name` but not `id` or `default_severity`; (b) validate that an override''s `id` already exists in the base catalogue before accepting it (preventing pattern injection); or (c) move the override file to an ACL-gated path (outside the PR surface) and gate changes on code-owner approval. At minimum, log a warning when an override changes a security-relevant field like severity.'
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.6
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

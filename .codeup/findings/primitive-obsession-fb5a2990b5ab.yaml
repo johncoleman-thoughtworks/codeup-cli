@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: primitive-obsession-fb5a2990b5ab
+category: primitive-obsession
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/analyzer.rs
+  line: 15
+  endLine: 18
+  contentHash: dd842b16ac5f7d509667397abd93496691fb026cc0432dc01f2e55ec0543ce4d
+explanation: The constants `MAX_OUTPUT_TOKENS`, `MAX_FILE_CHARS`, `MAX_NEIGHBOR_CHARS`, and `MAX_NEIGHBORS` are bare primitives with no type wrapper or unit annotation. `MAX_FILE_CHARS` and `MAX_NEIGHBOR_CHARS` are measured in bytes/chars but their types are `usize` with no distinction — a caller mixing them up would pass silently. `MAX_OUTPUT_TOKENS` is a token count whereas the others are character counts; the same raw numeric type is overloaded across different units, making it easy to misuse them at call sites.
+suggestedRemediation: Consider introducing unit-annotated newtypes (e.g. `CharLimit(usize)`, `TokenLimit(u32)`) or at minimum grouping these into a named config struct so that unit mismatches are caught by the type system rather than at runtime.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.5
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: reinventing-the-wheel-1691402a67fd
+category: reinventing-the-wheel
+severity: low
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/main.rs
+  line: 261
+  endLine: 305
+  contentHash: dec6f5b6e5fce1fd5359132f98e4ee567640688b298cbe55184283910a1385f9
+explanation: The `chrono_now_iso`, `unix_to_iso`, and `days_to_ymd` functions hand-roll an ISO-8601 UTC timestamp formatter, including a full civil-date algorithm (Howard Hinnant's formula). The crate already depends on `chrono` (used elsewhere in the project) or could trivially add it; `chrono` or `time` would produce the same string with no risk of subtle calendar arithmetic bugs.
+suggestedRemediation: Replace `chrono_now_iso`, `unix_to_iso`, and `days_to_ymd` with a single call to a time crate already in the dependency graph (e.g. `chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()`). This eliminates ~40 lines of hand-rolled calendar logic and removes the risk of off-by-one errors in the Gregorian algorithm.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.75
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

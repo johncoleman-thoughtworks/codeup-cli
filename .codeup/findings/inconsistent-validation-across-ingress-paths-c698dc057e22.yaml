@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: inconsistent-validation-across-ingress-paths-c698dc057e22
+category: inconsistent-validation-across-ingress-paths
+severity: high
+status: fixed
+priority: high
+location:
+  file: crates/codeup/src/cache.rs
+  line: 44
+  endLine: 49
+  contentHash: eb2ff28082bf52941f04ec2440e539afaf8440f489285c0139f281e53a47035a
+explanation: '`AnalysisCache::get` deserializes a `CacheEntry` from disk and returns it with no validation of its contents. The neighbor `analyzer.rs` applies `revalidate_cached` on cache hits to guard against poisoned entries (e.g. a `category` containing path traversal sequences). However, any consumer that calls `cache.get()` directly — bypassing `analyzer.rs` — receives unvalidated data straight from the cache file. Validation lives at the consumer, not at the ingress point in `get()`, which is only safe as long as every consumer remembers to re-validate.'
+suggestedRemediation: Consider moving at least basic structural validation (non-empty key, valid severity strings, finite confidence, non-zero line) into `CacheEntry`'s deserialization or into `get()` itself, so no raw unvalidated entry can escape the cache layer. Document explicitly in the `get()` signature that callers must re-validate security-bearing fields against the active catalogue before use.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

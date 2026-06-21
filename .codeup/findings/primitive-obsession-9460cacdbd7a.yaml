@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: primitive-obsession-9460cacdbd7a
+category: primitive-obsession
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/catalogue.rs
+  line: 22
+  endLine: 28
+  contentHash: 3135f17457847f67859e590ea944c502dfb49d1108759305b69332db7039fb9c
+explanation: '`CataloguePattern.id`, `name`, and `languages` are raw `String` / `Vec<String>` values. The `id` field is the primary key used throughout the system (merge-by-id in `merge_patterns`, cache-key composition in `cache.rs`, filtering in `knowledge.rs`) but is an unconstrained `String` — nothing enforces the kebab-case format that the rest of the system depends on. Similarly, language identifiers are plain strings with no defined allowlist, making it easy to introduce a typo (`"typscript"`) that silently causes `patterns_for_language` to return nothing. A `PatternId` newtype and a `LanguageTag` newtype or enum would make misuse a compile error.'
+suggestedRemediation: Introduce a `PatternId(String)` newtype that validates kebab-case on construction, and either a `Language` enum or a `LanguageTag(String)` newtype. Use these in `CataloguePattern`, `merge_patterns`, and `patterns_for_language` so the compiler catches category-string confusion across the codebase.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.55
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

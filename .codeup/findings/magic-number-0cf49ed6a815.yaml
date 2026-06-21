@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: magic-number-0cf49ed6a815
+category: magic-number
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/cache.rs
+  line: 88
+  contentHash: 4799fe09b4437818d55111e19e06b36da3d516dc0aaecbf5c0430e2415228d5a
+explanation: The expression `&hex[..32]` uses the literal `32` to truncate the SHA-256 hex digest to 32 characters (16 bytes of the hash). This is a non-obvious constant — it represents a deliberate truncation of the full 64-character hex digest for brevity, but there is no named constant explaining why 32 was chosen or what collision probability it implies.
+suggestedRemediation: 'Introduce a named constant such as `const CACHE_KEY_HEX_LEN: usize = 32;` with a comment explaining the tradeoff (e.g., "first 32 hex chars = 128 bits; collision probability negligible for typical workspace sizes"), and use it in the slice expression.'
+detectedAt: "2026-06-21T11:49:58.408Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T11:49:58.408Z"
+  event: detected

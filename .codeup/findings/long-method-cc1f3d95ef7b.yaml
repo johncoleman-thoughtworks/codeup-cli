@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: long-method-cc1f3d95ef7b
+category: long-method
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/runner.rs
+  line: 43
+  endLine: 215
+  contentHash: 191ad0e1990af3ea794ffe11cc543539b49e7dca249cd3aa18c2bd238a568394
+explanation: 'The `run` function spans approximately 175 lines (lines 43–215) and contains at least five conceptually distinct phases: knowledge validation, workspace indexing, deterministic checks (cycles, layer violations, oversized files), the LLM pass, and result assembly. Each section is separated by blank lines and comments naming the phase, which is a strong signal that these are independent logical units. This makes the function difficult to test in isolation and hard to navigate during code review.'
+suggestedRemediation: 'Extract each phase into its own function: `validate_knowledge`, `run_deterministic_checks`, `run_llm_pass`, etc. The `run` function becomes an orchestrator that calls these helpers in sequence, making each phase independently testable and the overall flow immediately readable.'
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.8
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

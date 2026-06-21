@@ -1,0 +1,31 @@
+schemaVersion: 1
+id: external-artifact-without-integrity-verification-78af5a8652d9
+category: external-artifact-without-integrity-verification
+severity: high
+status: fixed
+priority: high
+location:
+  file: scripts/install.sh
+  line: 207
+  endLine: 218
+  contentHash: 52fd75f99deb4316e71c1e78ab248690a51cc051714a016fc531cb84d5ce092c
+explanation: The `install_from_source` function performs a `git clone` of the repository and then executes
+  `cargo build` against whatever code is present in the cloned working tree. There is no verification
+  that the cloned commit matches a signed tag or a known-good commit hash. An attacker who can influence
+  the repository (e.g. a compromised GitHub account, a force-pushed branch, or a DNS/BGP hijack during
+  the clone) can inject arbitrary Rust code that will be compiled and installed with user privileges.
+  The `--depth 1` flag fetches only the tip, bypassing any signed-tag history that could be checked.
+suggestedRemediation: After cloning, verify the HEAD commit against a GPG-signed tag using `git tag -v
+  "$VERSION"` or check that the commit SHA matches a value pinned in the installer. Prefer verifying a
+  signed release tag over a branch tip. For the "latest" path, resolve the latest signed tag via a verified
+  API call and then check the tag signature rather than blindly cloning HEAD.
+detectedAt: '2026-06-21T10:20:27.139Z'
+detectedBy: claude-sonnet-4-6
+confidence: 0.85
+history:
+- timestamp: '2026-06-21T10:20:27.139Z'
+  event: detected
+- timestamp: '2026-06-21T11:25:06.498716Z'
+  event: status_changed
+  from: unconfirmed
+  to: confirmed

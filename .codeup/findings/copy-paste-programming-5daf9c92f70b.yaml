@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: copy-paste-programming-5daf9c92f70b
+category: copy-paste-programming
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/llm/provider.rs
+  line: 70
+  endLine: 110
+  contentHash: a021ed7b8bb682d07113bfa8c4788a555e35655cd7d7efa330fadc46d74fb4de
+explanation: 'The logic that builds a `ResolvedProvider` for Anthropic appears twice — once in the `ProviderSetting::Anthropic` arm (lines ~72–79) and again in the `ProviderSetting::Auto` arm (lines ~93–99). Identical patterns exist for GitHub Models (lines ~83–90 and ~102–108): compute the model string, construct the client, wrap in `ResolvedProvider`. The only difference between each pair is the `reason` string. If the client constructor signature or the struct fields change, both sites must be updated in lockstep, and they will silently drift.'
+suggestedRemediation: 'Extract two small helpers, e.g. `make_anthropic_provider(key: AnthropicKey, model_override: Option<&str>, reason: &str) -> Result<ResolvedProvider>` and `make_github_provider(token: GitHubToken, model_override: Option<&str>, reason: &str) -> Result<ResolvedProvider>`. Each arm then delegates to the helper with only its specific `reason` string, eliminating the duplication.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.8
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

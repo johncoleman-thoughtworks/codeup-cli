@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-3659278e1f07
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/sarif.rs
+  line: 120
+  endLine: 160
+  contentHash: 6b0a2e49c191a6ad508a0948aea32326e5d2571765eaea0b12885d9d1a8caf0c
+explanation: 'The `render` function iterates over `findings: &[Finding]` and directly uses `f.id.as_str()` as the `codeupId/v1` partial fingerprint (line ~148), `f.category` as the SARIF `ruleId`, and `f.explanation` as the result message — all sourced from the caller''s findings slice without any re-validation here. While `analyzer.rs` validates findings on production and on cache-hit paths, the `render` function is also called directly from `main.rs` with `summary.findings`, which is populated by `FindingsStore::load` (persisted YAML on disk). Any field in a persisted finding YAML — including `category`, `id`, and `explanation` — is trusted as authoritative and emitted verbatim into the SARIF output. A SARIF consumer (e.g. GitHub Code Scanning) that receives a fabricated `ruleId` or `partialFingerprints` value derived from attacker-planted YAML content could behave unexpectedly (e.g. suppress or create spurious alerts). The SARIF renderer is the use site and performs no field-level re-attestation of security-relevant fields like `category` or `id`.'
+suggestedRemediation: The `render` function (or its callers before passing the slice) should validate that `f.category` is a known catalogue pattern id and that `f.id` matches the expected stable-id format (alphanumeric/dash/underscore, bounded length) before emitting them into SARIF. This mirrors the `revalidate_cached` guard already in `analyzer.rs` and would close the gap for the persisted-findings ingress path through `FindingsStore::load`.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.5
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

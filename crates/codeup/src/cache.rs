@@ -1,6 +1,7 @@
 //! Per-entry analysis cache at `.codeup/cache/entries/<hash>.json`.
 //! Lazy-loaded: get() reads from disk on miss, no global load on startup.
 
+use crate::store::{safe_create_dir_all, safe_write_yaml};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -38,28 +39,44 @@ impl AnalysisCache {
         Self { root: root.to_path_buf() }
     }
 
-    pub fn get(&self, key: &str) -> Option<CacheEntry> {
+    pub fn get(&self, key: &str) -> Result<Option<CacheEntry>> {
         let path = self.entry_path(key);
         if !path.exists() {
-            return None;
+            return Ok(None);
         }
-        let bytes = std::fs::read(&path).ok()?;
-        serde_json::from_slice(&bytes).ok()
+        let bytes = std::fs::read(&path)
+            .with_context(|| format!("reading cache entry {path:?}"))?;
+        let entry = serde_json::from_slice(&bytes)
+            .with_context(|| format!("parsing cache entry {path:?}"))?;
+        Ok(Some(entry))
     }
 
     pub fn put(&self, key: &str, findings: Vec<ReportedFinding>, now: String) -> Result<()> {
         let entry = CacheEntry { key: key.to_string(), analyzed_at: now, findings };
         let dir = self.root.join(ENTRIES_REL);
-        std::fs::create_dir_all(&dir).with_context(|| format!("creating {dir:?}"))?;
-        // Drop a self-ignoring .gitignore once.
-        let gi = self.root.join(".codeup/cache/.gitignore");
-        if !gi.exists() {
-            let _ = std::fs::create_dir_all(gi.parent().unwrap());
-            let _ = std::fs::write(&gi, "# Codeup-generated state. Safe to delete; will be regenerated on next scan.\n*\n!.gitignore\n");
+        safe_create_dir_all(&self.root, &dir)?;
+        // Drop a self-ignoring .gitignore once, using the same symlink-safe
+        // write path so a planted symlink at .codeup/cache/.gitignore can't
+        // redirect the write.
+        let gi_dir = self.root.join(".codeup/cache");
+        if !gi_dir.join(".gitignore").exists() {
+            if safe_create_dir_all(&self.root, &gi_dir).is_ok() {
+                let _ = safe_write_yaml(
+                    &self.root,
+                    &gi_dir,
+                    ".gitignore",
+                    "# Codeup-generated state. Safe to delete; will be regenerated on next scan.\n*\n!.gitignore\n",
+                );
+            }
         }
         let path = self.entry_path(key);
-        let body = serde_json::to_vec_pretty(&entry)?;
-        std::fs::write(&path, body)?;
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .with_context(|| format!("invalid entry path {path:?}"))?
+            .to_string();
+        let body = serde_json::to_string_pretty(&entry)?;
+        safe_write_yaml(&self.root, &dir, &filename, &body)?;
         Ok(())
     }
 
@@ -68,5 +85,51 @@ impl AnalysisCache {
         h.update(key.as_bytes());
         let hex = hex::encode(h.finalize());
         self.root.join(ENTRIES_REL).join(format!("{}.json", &hex[..32]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_finding() -> ReportedFinding {
+        ReportedFinding {
+            category: "long-method".into(),
+            severity: "low".into(),
+            line: 1,
+            end_line: None,
+            explanation: "too long".into(),
+            suggested_remediation: None,
+            confidence: 0.9,
+        }
+    }
+
+    #[test]
+    fn get_returns_ok_none_on_true_miss() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = AnalysisCache::new(dir.path());
+        assert!(matches!(cache.get("no-such-key"), Ok(None)));
+    }
+
+    #[test]
+    fn put_then_get_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = AnalysisCache::new(dir.path());
+        cache.put("k1", vec![make_finding()], "2026-01-01T00:00:00Z".into()).unwrap();
+        let hit = cache.get("k1").unwrap().expect("should be a cache hit");
+        assert_eq!(hit.key, "k1");
+        assert_eq!(hit.findings.len(), 1);
+        assert_eq!(hit.findings[0].category, "long-method");
+    }
+
+    #[test]
+    fn get_returns_err_on_corrupt_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = AnalysisCache::new(dir.path());
+        // Write a valid entry first so the path exists, then corrupt it.
+        cache.put("k2", vec![], "2026-01-01T00:00:00Z".into()).unwrap();
+        let path = cache.entry_path("k2");
+        std::fs::write(&path, b"not json at all {{{{").unwrap();
+        assert!(cache.get("k2").is_err(), "corrupt JSON must return Err, not None");
     }
 }

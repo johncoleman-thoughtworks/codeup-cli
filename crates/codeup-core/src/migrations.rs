@@ -83,6 +83,10 @@ pub fn run_migrations(
         cur = (step.migrate)(cur);
         if let Value::Mapping(ref mut m) = cur {
             m.insert(Value::String("schemaVersion".into()), Value::Number(step.to_version.into()));
+        } else {
+            return Err(MigrationError::NotAMapping {
+                artifact: artifact_name.to_string(),
+            });
         }
         applied_steps.push(step.to_version);
     }
@@ -220,6 +224,17 @@ mod tests {
         m.insert(Value::String("a".into()), Value::Number(1.into()));
         let r = run_migrations(Value::Mapping(m), "thing", 2, &migs).unwrap();
         assert_eq!(r.value.get("bumped").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[test]
+    fn migration_returning_non_mapping_errors() {
+        let migs = vec![Migration {
+            from_version: 1,
+            to_version: 2,
+            migrate: |_| Value::Null, // broken migration returns wrong type
+        }];
+        let err = run_migrations(obj(1, &[]), "thing", 2, &migs).unwrap_err();
+        assert!(matches!(err, MigrationError::NotAMapping { .. }));
     }
 
     #[test]

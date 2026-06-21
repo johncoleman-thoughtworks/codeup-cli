@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: cognitive-complexity-9f73454e7e91
+category: cognitive-complexity
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/analyzer.rs
+  line: 68
+  endLine: 152
+  contentHash: dd842b16ac5f7d509667397abd93496691fb026cc0432dc01f2e55ec0543ce4d
+explanation: '`analyze_file` interleaves multiple concerns in a single body: three early-exit guard clauses (no patterns, binary, size), cache key construction, cache lookup with fallback to LLM, LLM response parsing and validation, a second revalidation pass over potentially-cached results, and final domain object assembly. The `if let Some(hit) = cache_hit` branch then contains its own multi-step sub-pipeline. A reader must track which variables are in scope for the live vs. cached path, and the two validation layers (`validate_reported` vs. `revalidate_cached`) require understanding their interplay to reason about correctness.'
+suggestedRemediation: 'Extract helper functions: `guard_checks(entry, text) -> Option<AnalyzeResult>` for the three early exits; `fetch_or_analyze(entry, text, ctx, neighbors, now, cache_key) -> Result<Vec<ReportedFinding>>` for the cache/LLM dispatch; leave `analyze_file` as a thin coordinator. This makes the two validation layers and each code path individually testable.'
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: untrusted-input-terminates-shared-process-3b669185a26f
+category: untrusted-input-terminates-shared-process
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/scanner/imports.rs
+  line: 63
+  contentHash: d45acba5743227f4dcb4b3f08f19c373fa7e92fc4a585e3cd779fa37cff15e58
+explanation: The Python import regex `(?m)^\s*(?:from\s+([\w.]+)\s+import\s+.+|import\s+([\w. ,]+))$` contains `[\w. ,]+` which is a character-class-only pattern and is linear — but the broader concern is that none of the regexes in this file impose any size cap on the input `text`. Source files are capped at 512 KiB by the walker, but `extract_imports` accepts arbitrary `&str` and is a public function. If called from a code path that bypasses the walker's `MAX_FILE_BYTES` guard (e.g. content fetched from a store, or a future test/API path), a crafted large input could cause the `(?ms)` block-import regex at line 86 (which uses a lazy `.*?` spanning newlines) to do significant backtracking work in the worst case, stalling the shared scan process. There is no per-call size bound or timeout at the extractor level.
+suggestedRemediation: Add a fast-path size guard at the top of `extract_imports` (e.g. `if text.len() > MAX_IMPORT_SCAN_BYTES { return Vec::new(); }`) so the function is self-defending regardless of how it is called. Consider replacing the `(?ms).*?` lazy-dot-all span in `go_imports` with a bounded alternative or a dedicated block parser to eliminate potential catastrophic backtracking.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.45
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

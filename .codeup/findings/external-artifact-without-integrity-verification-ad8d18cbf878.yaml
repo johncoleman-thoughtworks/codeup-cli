@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: external-artifact-without-integrity-verification-ad8d18cbf878
+category: external-artifact-without-integrity-verification
+severity: high
+status: fixed
+priority: high
+location:
+  file: scripts/install.sh
+  line: 197
+  endLine: 211
+  contentHash: bd4ac6382da2e8594f4c1fea15bdd7be31bcc3a9236f7594b991ac508d2d4ce2
+explanation: The `install_from_source` function clones the repository at `--depth 1` (for `latest`) or `--branch $VERSION` and immediately compiles and installs whatever code is present. No check is made that the cloned commit matches a signed tag or a known-good commit hash. An attacker who can push to the GitHub repository, or who can intercept or redirect the clone URL (e.g. via DNS poisoning or a compromised mirror), can substitute arbitrary code that will be compiled and executed with the calling user's privileges. This is the same confirmed anti-pattern already identified in this project. Additionally, this path is silently activated as a fallback when the prebuilt download fails (`install_prebuilt || { ... install_from_source }`), widening the attack surface beyond the explicit `--from-source` flag.
+suggestedRemediation: After cloning, verify the HEAD commit against a known-good SHA or a signed tag using `git verify-tag` / `git verify-commit` with a pinned GPG key embedded in the installer. For tagged releases, refuse to build if the checked-out commit does not exactly match the expected tag SHA. Remove the silent fallback from prebuilt to source build, or at minimum require explicit user consent (`--from-source`) before taking this higher-risk path; never trigger it automatically on network errors.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.95
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

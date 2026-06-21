@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: lower-trust-config-overrides-security-decision-dccab2dc9eb2
+category: lower-trust-config-overrides-security-decision
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: .github/workflows/codeup.yml
+  line: 78
+  endLine: 84
+  contentHash: bbfe8e63ee629708d8b2768a937d4ad7519498bd4a6e285f3f38047625162d70
+explanation: The `inputs.provider` workflow_dispatch input — supplied by any user with permission to trigger the workflow — can force `--provider github-models` even when an `ANTHROPIC_API_KEY` secret is configured, overriding the security-relevant provider selection. More critically, `inputs.deterministic_only` can skip the LLM security-analysis pass entirely (`--deterministic-only`). Both are lower-trust, user-supplied values that override a decision (which analysis engine to use, whether to run security checks at all) that should be governed by a higher-trust policy (the repository configuration / maintainer-controlled defaults). On a pull_request trigger these inputs default to falsy/auto, but the unguarded interpolation `${{ inputs.deterministic_only || 'false' }}` and `${{ inputs.provider || 'auto' }}` directly into the shell script means a workflow_dispatch caller can materially weaken the scan without any escalation prompt or reviewer approval.
+suggestedRemediation: 'Restrict `workflow_dispatch` inputs that affect security-scan behavior to maintainer/admin roles using an environment protection rule (e.g., require a protected environment for `workflow_dispatch` runs that set `deterministic_only: true` or override `provider`). Alternatively, make the LLM-provider and deterministic-only decisions authoritative from repository-level variables rather than caller-supplied inputs, so no individual dispatch can silently downgrade the scan fidelity without a repository-settings change that is itself audited.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.72
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

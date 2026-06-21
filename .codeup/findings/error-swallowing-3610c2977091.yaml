@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: error-swallowing-3610c2977091
+category: error-swallowing
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/cache.rs
+  line: 56
+  endLine: 59
+  contentHash: eb2ff28082bf52941f04ec2440e539afaf8440f489285c0139f281e53a47035a
+explanation: The `.gitignore` creation steps use `let _ = ...` to discard errors from both `create_dir_all` and `write`. If the `.codeup/cache/` directory cannot be created or the `.gitignore` cannot be written (e.g., permissions issue), the failure is silently ignored. This is particularly concerning because the subsequent `std::fs::write(&path, body)?` in the same method will then likely fail with a less informative error or succeed into an unexpected location.
+suggestedRemediation: At minimum log a warning on failure. Since this is a best-effort write, `tracing::warn!` on error is acceptable — but do not silently discard it. Alternatively, fold the `.gitignore` creation into the `create_dir_all` step that already returns a `Result`.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.75
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

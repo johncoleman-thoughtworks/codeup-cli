@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-791412c3996d
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/runner.rs
+  line: 172
+  contentHash: 191ad0e1990af3ea794ffe11cc543539b49e7dca249cd3aa18c2bd238a568394
+explanation: 'The `RunSummary::findings` field is built from `store.produced_by_this_run()`, which returns only findings regenerated in the current run. However, the `FindingsStore` itself is loaded from disk at line 97 (`FindingsStore::load`), and every `upsert_from_analysis` call merges fresh detections with whatever state was already persisted on disk. Fields like `status` and `priority` are carried forward from the persisted YAML (as visible in `store.rs`). A malicious PR that plants a `.codeup/findings/*.yaml` file with `status: dismissed` for a real finding could cause `upsert_from_analysis` to preserve that `dismissed` status on the in-memory finding, meaning the finding would be excluded from the `--fail-on` gate and SARIF output even though it was freshly re-detected. The comment at line 168 acknowledges persisted-only files don''t reach SARIF, but the merged `status` field from a poisoned persisted file does influence the current-run findings that do reach SARIF.'
+suggestedRemediation: When emitting findings via `produced_by_this_run()`, reset or ignore the `status` field for freshly-detected findings rather than carrying it forward from disk. Treat on-disk `status` only as informational metadata (e.g., for the human-readable text report) and never let it suppress a finding from the SARIF/fail-on path. Alternatively, require a separate ACL-gated store for dismissals (outside the PR-writable `.codeup/` directory) before honoring a `dismissed` status.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.65
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

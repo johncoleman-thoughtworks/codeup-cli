@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: comment-rot-458e6e127ab6
+category: comment-rot
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup-core/src/intent.rs
+  line: 185
+  contentHash: 884f66cbd1ed1f2c74fcf6bbda89063dd9263917a0482ff362e3fbc6bfc52f1b
+explanation: 'The comment on line 185 says "TS uses SHA-1 + 12 hex chars. SHA-256 + 12 is functionally equivalent for our id stability purposes." This comment is misleading: SHA-1 and SHA-256 produce different digest lengths and different hex strings, so the output of `stable_id` in Rust is NOT bit-for-bit equivalent to the TS implementation — the ids will differ. The module-level doc comment on line 5 claims "All findings produced here are `detectedBy = "codeup-deterministic"` with confidence 1" and elsewhere states the YAML on disk should be "bit-for-bit equivalent," but the hash algorithm divergence makes this false for the `id` field.'
+suggestedRemediation: Either update the implementation to use SHA-1 (matching the TS side) so IDs are genuinely stable across implementations, or correct the comments to remove the "bit-for-bit equivalent" and "functionally equivalent" claims and explicitly document the known divergence and its implications for cross-implementation ID matching.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.72
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

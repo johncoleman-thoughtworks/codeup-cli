@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: external-artifact-without-integrity-verification-297790d4ce34
+category: external-artifact-without-integrity-verification
+severity: high
+status: fixed
+priority: high
+location:
+  file: scripts/install.sh
+  line: 228
+  endLine: 233
+  contentHash: 52fd75f99deb4316e71c1e78ab248690a51cc051714a016fc531cb84d5ce092c
+explanation: The prebuilt binary install path has an explicit fallback to `install_from_source` with the message "Prebuilt install failed — falling back to source build." This fallback is triggered silently on any network or extraction error, and the source build path has no integrity verification whatsoever (see the git-clone finding above). An attacker who can make the prebuilt download fail (e.g. by blocking the GitHub releases CDN or returning a bad tarball) can force every user into the unverified source path, which then clones and compiles whatever is at the tip of the repository branch.
+suggestedRemediation: Remove the automatic silent fallback to source build, or require explicit user opt-in via `--from-source`. If a fallback is kept, require the same level of integrity verification (signed tag check) on the source path before compiling and installing.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.8
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

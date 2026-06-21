@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: error-swallowing-ee80eea04e64
+category: error-swallowing
+severity: high
+status: fixed
+priority: high
+location:
+  file: crates/codeup-core/src/migrations.rs
+  line: 83
+  endLine: 86
+  contentHash: 05c3b02b07a603fb25a2bc2150144df73d5983385c114ae91476eb52fb5fa0b6
+explanation: After calling `(step.migrate)(cur)`, the runner updates `schemaVersion` only inside an `if let Value::Mapping(...)` arm. If a migration returns a non-Mapping value (e.g., a scalar or null — the `fn(Value) -> Value` signature permits this silently), the version field is never incremented, yet `applied_steps` is still updated and the result is returned as `Ok`. The caller cannot distinguish "migration succeeded and produced a valid mapping" from "migration silently corrupted the shape." The failure mode is invisible downstream.
+suggestedRemediation: Change the `migrate` function signature to `fn(Value) -> Result<Value, MigrationError>` so each step can signal failure explicitly. Then add a post-migration guard that returns `Err(MigrationError::NotAMapping)` if the result of any step is not a Mapping, rather than silently skipping the version update.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.85
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

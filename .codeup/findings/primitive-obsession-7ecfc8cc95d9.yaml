@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: primitive-obsession-7ecfc8cc95d9
+category: primitive-obsession
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/cache.rs
+  line: 14
+  endLine: 17
+  contentHash: 4799fe09b4437818d55111e19e06b36da3d516dc0aaecbf5c0430e2415228d5a
+explanation: '`CacheEntry::analyzed_at` and `ReportedFinding::severity` are both raw `String` values representing domain concepts with restricted value sets: `analyzed_at` is an ISO-8601 timestamp and `severity` is an enum (`"low"`, `"medium"`, `"high"`). Using strings for these makes them easy to corrupt in transit (a typo in severity, a malformed timestamp) and forces every consumer to re-parse or re-validate the strings rather than relying on the type system.'
+suggestedRemediation: Use a shared `Severity` enum (already present in `codeup_core::schema`) for `ReportedFinding::severity`, and consider a newtype or `chrono::DateTime` for `analyzed_at`. This lets serde enforce invariants at deserialization time rather than requiring manual checks in `revalidate_cached`.
+detectedAt: "2026-06-21T11:49:58.408Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.55
+history:
+- timestamp: "2026-06-21T11:49:58.408Z"
+  event: detected

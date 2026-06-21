@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: copy-paste-programming-0bb32b04dd64
+category: copy-paste-programming
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/quality.rs
+  line: 102
+  endLine: 107
+  contentHash: ace7622276e2aae699828a89ba0c06802dd9ff3c8c2bbea1b5df86e31483e61e
+explanation: The `stable_id` function (lines 102–107) is a verbatim copy of the same function in `intent.rs` — identical name, identical SHA-256 + 12-char hex-prefix logic, even the same comment about SHA-1 parity exists over there. Any future change to ID generation (e.g. prefix length, hash algorithm, format) must be applied in both places, and a missed sync would produce inconsistent IDs between quality and intent findings stored in the same YAML files.
+suggestedRemediation: Extract `stable_id` into a shared utility module (e.g. `crates/codeup-core/src/ids.rs` or a `utils` sub-module) and have both `quality.rs` and `intent.rs` call the single canonical implementation. The function is pure and has no dependencies, so the extraction is trivial.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.92
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

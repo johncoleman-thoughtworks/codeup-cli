@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: copy-paste-programming-028ec750f0f2
+category: copy-paste-programming
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup-core/src/scanner/walk.rs
+  line: 299
+  endLine: 301
+  contentHash: 670035ab43774f7e3fab04604e91359c9fde1933ad0ff5edb9a0e2c7be67e114
+explanation: The SHA-256 hashing sequence — `Sha256::new()`, `hasher.update(&bytes)`, `hex::encode(hasher.finalize())` — appears verbatim inside `scan_workspace` (lines ~299–301) and again in the standalone `hash_content` function (lines ~320–323). The `hash_content` function exists precisely to deduplicate this logic, but `scan_workspace` does not call it.
+suggestedRemediation: Replace the inline hashing in `scan_workspace` with a call to `hash_content(&bytes)`. This is a one-line fix that eliminates the duplicate and ensures any future change to the hashing algorithm is applied consistently.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.95
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-f117de104c66
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/analyzer.rs
+  line: 143
+  endLine: 150
+  contentHash: dd842b16ac5f7d509667397abd93496691fb026cc0432dc01f2e55ec0543ce4d
+explanation: The `from_cache` field in the returned `AnalyzeResult` is always set to `false` (line 143), even when findings actually came from cache. The comment acknowledges this ("findings round-tripped through cache when present"). This means the runner in `runner.rs` can never distinguish a live LLM response from a cache hit, so `llm_files_cached` will never be incremented — the counter that tracks cache hits is permanently zeroed. The misleading field value hides the provenance of findings from callers making operational decisions (logging, cost tracking).
+suggestedRemediation: Track whether the cache was hit in a local `bool` and set `from_cache` accordingly. The runner already has `llm_files_cached` and `llm_files_scanned` counters that depend on this flag being correct.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.85
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: long-parameter-list-f18a2bf03e4d
+category: long-parameter-list
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/analyzer.rs
+  line: 68
+  endLine: 73
+  contentHash: dd842b16ac5f7d509667397abd93496691fb026cc0432dc01f2e55ec0543ce4d
+explanation: '`analyze_file` takes 5 parameters: `entry`, `text`, `ctx`, `neighbors`, and `now`. While `ctx` bundles several dependencies, `text` and `now` are loose primitives alongside a rich context object. `text` in particular could reasonably belong on `entry` (or a richer `AnalyzeInput` struct). The split between what''s in `AnalyzeContext` and what''s passed separately is not principled, making the function signature harder to evolve without breaking all callers.'
+suggestedRemediation: Introduce an `AnalyzeInput` struct that bundles `entry`, `text`, and `neighbors` together, leaving `ctx` and `now` as orthogonal concerns, or add `text` and `neighbors` into a richer entry wrapper so the function signature collapses to two or three arguments.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.5
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

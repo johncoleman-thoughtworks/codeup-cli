@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: magic-number-ea984354e4db
+category: magic-number
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup-core/src/knowledge.rs
+  line: 100
+  contentHash: fa6016a4eacdc5055f1c3dac1fdfe08e0e9bc2201315d332444aa5cc11d61ad5
+explanation: The value `100` is used as the "same directory" proximity score and `10` as the per-shared-segment multiplier in `directory_proximity`. These are unexplained magic numbers embedded directly in the scoring logic. There is no comment or named constant indicating why `100` represents "same directory" (vs `10 * n` for n shared segments) or why `10` is the per-segment weight.
+suggestedRemediation: 'Extract named constants: `const SAME_DIR_SCORE: i32 = 100` and `const SHARED_SEGMENT_SCORE: i32 = 10`, with a comment explaining the invariant (e.g. "same-directory score must exceed any partial-match score to always prefer same-dir exemplars").'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

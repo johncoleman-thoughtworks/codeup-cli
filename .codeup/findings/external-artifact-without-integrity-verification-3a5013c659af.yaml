@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: external-artifact-without-integrity-verification-3a5013c659af
+category: external-artifact-without-integrity-verification
+severity: high
+status: unconfirmed
+priority: high
+location:
+  file: scripts/install.sh
+  line: 168
+  endLine: 185
+  contentHash: bd4ac6382da2e8594f4c1fea15bdd7be31bcc3a9236f7594b991ac508d2d4ce2
+explanation: The `.sha256` checksum sidecar is fetched from the exact same GitHub Releases URL and the exact same network path as the artifact it is supposed to verify (`$base/$asset.sha256`). Both artifact and checksum travel through the same channel, so a supply-chain compromise of the GitHub release (e.g. a hijacked release asset) would replace both files simultaneously. The checksum provides no independent assurance of provenance — it only protects against accidental bit-rot, not a malicious substitution. Moreover, when the sidecar fetch fails or returns an empty file, the code explicitly continues installation without any verification (`log "(no checksum sidecar; skipping verification)"`), making integrity checking opt-in by the publisher rather than enforced by the installer. There is no signature verification against a pinned public key, no Sigstore/cosign attestation, and no allowlist constraining the download origin.
+suggestedRemediation: Publish a detached GPG or Sigstore (cosign) signature alongside each release and verify it in the installer using a pinned public key or a Sigstore transparency-log lookup. The verification key must be embedded in the installer script itself (a different channel than the artifact host) so a compromise of the GitHub release cannot substitute both the binary and the verification material. Additionally, fail closed — remove the "skip verification" fallback when the checksum sidecar is absent, so the installer exits with an error rather than silently installing an unverified binary.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.9
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

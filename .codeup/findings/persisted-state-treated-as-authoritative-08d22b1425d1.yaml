@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-08d22b1425d1
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/sarif.rs
+  line: 127
+  endLine: 160
+  contentHash: 6b0a2e49c191a6ad508a0948aea32326e5d2571765eaea0b12885d9d1a8caf0c
+explanation: 'The `render` function ingests `findings: &[Finding]` and emits them directly into the SARIF output. The caller (`main.rs`) passes `summary.findings`, which is the merged result of both freshly-detected findings AND findings rehydrated from the persisted `.codeup/findings/` YAML store. The SARIF output is the primary GitHub Code Scanning ingestion surface; a SARIF result with a fabricated `partialFingerprints.codeupId/v1` or inflated severity could be planted into the store by anyone who can write files into `.codeup/findings/`. The `render` function itself performs no re-attestation — it trusts whatever `Finding` it receives as authoritative, including those whose `status` is `Unconfirmed` but whose content was loaded verbatim from disk.'
+suggestedRemediation: In `runner.rs`/`store.rs`, track which findings were produced by the current run vs. loaded purely from persisted state (the `produced_ids` set already exists in `FindingsStore`). In `render`, or before calling it, filter `findings` to only those whose id appears in `produced_ids`, or add a provenance flag to `Finding` and skip disk-only records when building SARIF results. This ensures the SARIF upload reflects what the scanner actually observed, not what is present in an attacker-writable file tree.
+detectedAt: "2026-06-21T11:49:58.408Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.55
+history:
+- timestamp: "2026-06-21T11:49:58.408Z"
+  event: detected

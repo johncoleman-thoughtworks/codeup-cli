@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: comment-rot-b04655d109a6
+category: comment-rot
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup-core/src/intent.rs
+  line: 192
+  endLine: 194
+  contentHash: 884f66cbd1ed1f2c74fcf6bbda89063dd9263917a0482ff362e3fbc6bfc52f1b
+explanation: The comment says "TS uses SHA-1 + 12 hex chars. SHA-256 + 12 is functionally equivalent for our id stability purposes (collision-resistant prefix)." However, the TS counterpart is described as using SHA-1, while this code uses SHA-256 — and the comment asserts these are "bit-for-bit equivalent" in the module doc at line 5. A 12-hex-char prefix from SHA-1 and a 12-hex-char prefix from SHA-256 are not the same bytes even for the same input, so the IDs will differ between implementations. The comment is misleading about the equivalence claim.
+suggestedRemediation: Clarify the comment to say IDs are *stable within this implementation* but will not match the TS SHA-1-derived IDs. If cross-implementation ID stability is required, either match the TS algorithm (SHA-1, same prefix length) or document that the Rust and TS implementations produce different IDs intentionally.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.65
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: dead-code-6054a912f216
+category: dead-code
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/runner.rs
+  line: 147
+  endLine: 153
+  contentHash: 191ad0e1990af3ea794ffe11cc543539b49e7dca249cd3aa18c2bd238a568394
+explanation: The `if !opts.persist` block contains only a comment explaining what a future `--no-persist` flag *would* do, but performs no actual operation. The `persist` field is accepted in `RunOptions`, threaded through the call, and evaluated — but the resulting branch is completely empty, making the entire `persist` field a no-op at runtime.
+suggestedRemediation: 'Either implement the `--no-persist` behavior now (pass it down to `FindingsStore` to skip writes) or remove the `persist` field from `RunOptions` until the feature is actually implemented, to avoid misleading callers who set `persist: false` and expect no disk writes.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.85
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

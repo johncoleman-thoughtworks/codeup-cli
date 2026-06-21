@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: untrusted-input-terminates-shared-process-580805693f3f
+category: untrusted-input-terminates-shared-process
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/scanner/imports.rs
+  line: 83
+  contentHash: d45acba5743227f4dcb4b3f08f19c373fa7e92fc4a585e3cd779fa37cff15e58
+explanation: 'The `go_imports` function uses a `(?ms)` regex with a `.*?` lazy dot-all match to extract block imports: `r"(?ms)^\s*import\s*\((.*?)\)"`. With the `s` flag, `.` matches newlines, and the lazy `.*?` must scan the remainder of the file when a closing `)` appears far from the opening. On a crafted input with a very long un-closed `import (` block or deeply nested parentheses, this can cause significant backtracking. Similarly the general JS regex `(?:from|require\(|import\()\s*[''"]([^''"]+)[''"]\)?` and the Python regex with `[\w. ,]+` can be fed large synthetic inputs. Since this runs synchronously in the scanner process on arbitrary file content from a checked-out PR, a maliciously crafted file could cause the regex engine to spend excessive CPU time, stalling the whole scan process.'
+suggestedRemediation: 'Add a pre-check that bounds file input size before passing to regexes (a `MAX_IMPORT_SCAN_BYTES` guard). For the Go block import regex, consider using a non-backtracking approach: find the first `import (` with a simple string search, then scan byte-by-byte for the matching `)`, rather than using dot-all lazy `.*?`. Use the `regex` crate''s linear-time guarantee by avoiding nested quantifiers and instead using character classes like `[^)]*` where the inner content cannot contain the closing delimiter.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.55
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

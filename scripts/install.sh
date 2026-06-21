@@ -201,7 +201,7 @@ install_prebuilt() {
     expected=$(awk '{print $1}' "$TMP/$asset.sha256")
     if have shasum;     then actual=$(shasum -a 256 "$TMP/$asset" | awk '{print $1}')
     elif have sha256sum; then actual=$(sha256sum "$TMP/$asset" | awk '{print $1}')
-    else log "no shasum/sha256sum tool — skipping verification"; actual="$expected"
+    else die "no shasum/sha256sum tool — cannot verify download"
     fi
     [ "$expected" = "$actual" ] || die "checksum mismatch for $asset (expected $expected, got $actual)"
     log "Checksum OK."
@@ -225,10 +225,20 @@ install_from_source() {
   have git   || die "git not found — required for source build"
 
   if [ "$VERSION" = "latest" ]; then
+    err "warning: source build from 'latest' branch — commit integrity cannot be verified"
     git clone --depth 1 "https://github.com/$REPO.git" "$TMP/src" || die "git clone failed"
   else
     git clone --depth 1 --branch "$VERSION" "https://github.com/$REPO.git" "$TMP/src" \
       || die "git clone failed for tag $VERSION"
+    # Verify the tag carries a valid GPG signature. Requires the maintainer's
+    # public key to be imported; fails open with a warning if gpg is absent so
+    # the installer still works in minimal environments.
+    if have gpg; then
+      ( cd "$TMP/src" && git verify-tag "$VERSION" ) \
+        || die "tag signature verification failed for $VERSION — aborting"
+    else
+      err "warning: gpg not found — cannot verify tag signature for $VERSION"
+    fi
   fi
   log "Building codeup (this takes ~1-3 min)..."
   ( cd "$TMP/src" && cargo build --release --locked --bin codeup ) || die "cargo build failed"
@@ -240,7 +250,7 @@ if [ "$FROM_SOURCE" -eq 1 ]; then
   install_from_source
 else
   install_prebuilt || {
-    log "Prebuilt install failed — falling back to source build."
+    err "warning: prebuilt install failed — falling back to unverified source build"
     install_from_source
   }
 fi

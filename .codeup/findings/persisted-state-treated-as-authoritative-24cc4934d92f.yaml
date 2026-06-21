@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-24cc4934d92f
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/cache.rs
+  line: 44
+  endLine: 52
+  contentHash: 4799fe09b4437818d55111e19e06b36da3d516dc0aaecbf5c0430e2415228d5a
+explanation: 'The `get` method deserializes a cache entry from disk and returns it as-is without any re-validation of its security-relevant fields. The `CacheEntry` contains `findings: Vec<ReportedFinding>` where each `ReportedFinding` carries `category` (used as a filesystem path component in `stable_id`), `severity`, `line`, and `confidence`. Anyone who can write to `.codeup/cache/entries/` can plant a crafted JSON file that will be returned as a trusted cache hit. Although `analyzer.rs` does call `revalidate_cached` on the results after calling `cache.get`, the cache layer itself performs no validation — meaning any future caller of `AnalysisCache::get` that forgets to re-validate will silently trust attacker-controlled data.'
+suggestedRemediation: Move the revalidation logic (currently in `analyzer.rs::revalidate_cached`) into `AnalysisCache::get` itself, or add a `get_validated` method that takes the allowed pattern list and rejects entries with unknown categories/severities. This ensures the validation gate cannot be bypassed by a future caller that obtains entries from the cache.
+detectedAt: "2026-06-21T11:49:58.408Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.6
+history:
+- timestamp: "2026-06-21T11:49:58.408Z"
+  event: detected

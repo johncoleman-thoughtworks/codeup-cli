@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: hardcoded-configuration-5562a01a4c26
+category: hardcoded-configuration
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/llm/provider.rs
+  line: 12
+  endLine: 13
+  contentHash: a021ed7b8bb682d07113bfa8c4788a555e35655cd7d7efa330fadc46d74fb4de
+explanation: The default model names `"claude-sonnet-4-6"` and `"openai/gpt-4o-mini"` are baked in as compile-time constants. Model availability and versioning on hosted platforms change frequently; `claude-sonnet-4-6` is already a versioned slug that will become stale when Anthropic releases a newer Sonnet. Updating the default requires a rebuild and release of the binary rather than a configuration change.
+suggestedRemediation: Externalise default model names to a configuration file or environment variables (e.g. `CODEUP_DEFAULT_ANTHROPIC_MODEL`, `CODEUP_DEFAULT_GH_MODELS_MODEL`) with these strings as fallback defaults. This lets operators or CI scripts update the default without a code change.
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.7
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected

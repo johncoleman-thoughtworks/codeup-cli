@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: copy-paste-programming-ced36faf8cc9
+category: copy-paste-programming
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup-core/src/knowledge.rs
+  line: 17
+  endLine: 53
+  contentHash: fa6016a4eacdc5055f1c3dac1fdfe08e0e9bc2201315d332444aa5cc11d61ad5
+explanation: 'DismissalEntry and ExemplarEntry share a near-identical structural shape: both carry `schema_version`, `id`, `category`, `dismissed_at`/`confirmed_at`, `dismissed_by`/`confirmed_by`, and `original_finding_id`. The only substantive difference is `file_path_pattern` + `rationale` vs `file_path` + `excerpt`. Similarly, `DismissalsFile` and `ExemplarsFile` are structurally identical containers (schema_version + entries vec) that differ only in element type. If a field is added to the common "knowledge entry" shape (e.g. a `schemaVersion` bump helper, a `created_by` field), both structs must be updated independently — a classic copy-paste drift risk.'
+suggestedRemediation: Extract a `KnowledgeEntryBase` struct (or a shared trait) containing the common fields (`schema_version`, `id`, `category`, `dismissed_at`/`confirmed_at`, `dismissed_by`/`confirmed_by`, `original_finding_id`) and embed it in both entry types via composition. Similarly, make `KnowledgeFile<T>` generic over the entry type to eliminate the parallel `DismissalsFile`/`ExemplarsFile` duplication.
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.65
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: persisted-state-treated-as-authoritative-c8fcbce291c1
+category: persisted-state-treated-as-authoritative
+severity: medium
+status: unconfirmed
+priority: medium
+location:
+  file: crates/codeup/src/store.rs
+  line: 289
+  contentHash: 367036e5b1d4b45500da448e88cafca3fb762b0af01e8f82835f5aed4dcb2ea6
+explanation: The `load_knowledge` function loads dismissals and exemplars from disk (`.codeup/knowledge/dismissals.yaml`, `exemplars.yaml`) and returns them as a `KnowledgeSnapshot` without any re-attestation of the records' provenance. A malicious PR author can plant `.codeup/knowledge/dismissals.yaml` entries that pre-suppress known findings, since the loader trusts the `entries` field from disk verbatim and passes them directly to the caller for use in prompt filtering (`relevant_for`). Unlike `FindingsStore::load` which explicitly resets `Dismissed`/`Fixed` status and validates IDs against stable_id, `load_knowledge` has no such guards.
+suggestedRemediation: 'Apply the same principle used in `FindingsStore::load`: treat security-bearing fields from persisted dismissals as untrusted. Validate each dismissal entry against an expected schema (e.g. that its `findingId` matches the stable_id formula, or that it was authored by a trusted principal recorded via a separate ACL-gated mechanism). At minimum, document that dismissals.yaml should be in a `.codeup/` path protected by CODEOWNERS so it cannot be modified by arbitrary PR contributors.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.65
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

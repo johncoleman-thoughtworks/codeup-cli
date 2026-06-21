@@ -38,8 +38,62 @@ pub struct RunSummary {
 }
 
 pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
-    let (knowledge, custom_patterns) = load_knowledge(opts.root)?;
+    let (mut knowledge, custom_patterns) = load_knowledge(opts.root)?;
     let catalogue = load_catalogue(&custom_patterns)?;
+
+    // Validate knowledge entries against the catalogue.  Entries that name a
+    // category not in the catalogue are dropped — they could otherwise be used
+    // to suppress real findings by planting a dismissal with a made-up id that
+    // happens to share a prefix with a real one, or just to create confusion.
+    // Overly-broad glob patterns are surfaced as warnings so CI reviewers can
+    // see that a blanket suppression is in effect.
+    {
+        let known: std::collections::HashSet<&str> =
+            catalogue.patterns.iter().map(|p| p.id.as_str()).collect();
+
+        knowledge.dismissals.retain(|d| {
+            if known.contains(d.category.as_str()) {
+                true
+            } else {
+                tracing::warn!(
+                    "dismissal {:?} references unknown category {:?} — ignoring",
+                    d.id, d.category
+                );
+                false
+            }
+        });
+        knowledge.exemplars.retain(|e| {
+            if known.contains(e.category.as_str()) {
+                true
+            } else {
+                tracing::warn!(
+                    "exemplar {:?} references unknown category {:?} — ignoring",
+                    e.id, e.category
+                );
+                false
+            }
+        });
+        for d in &knowledge.dismissals {
+            if d.file_path_pattern == "**" || d.file_path_pattern == "**/*" {
+                tracing::warn!(
+                    "dismissal {:?} uses a global pattern {:?} — suppresses {} across the entire workspace",
+                    d.id, d.file_path_pattern, d.category
+                );
+            }
+        }
+        if !knowledge.dismissals.is_empty() {
+            tracing::info!(
+                "loaded {} dismissal(s): {}",
+                knowledge.dismissals.len(),
+                knowledge
+                    .dismissals
+                    .iter()
+                    .map(|d| format!("{}({})", d.category, d.file_path_pattern))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+    }
 
     tracing::info!("scanning workspace: {:?}", opts.root);
     let index = scan_workspace(opts.root, opts.now.to_string())?;

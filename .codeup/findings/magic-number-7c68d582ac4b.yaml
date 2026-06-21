@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: magic-number-7c68d582ac4b
+category: magic-number
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup-core/src/knowledge.rs
+  line: 155
+  contentHash: fa6016a4eacdc5055f1c3dac1fdfe08e0e9bc2201315d332444aa5cc11d61ad5
+explanation: In `format_for_prompt`, the literal `300` is used as a character cap on exemplar excerpts (`chars().take(300)`). This threshold has no named constant and no documentation explaining why 300 characters was chosen — e.g. whether it's tied to a prompt budget, a model context window constraint, or a UX decision.
+suggestedRemediation: 'Define `const MAX_EXCERPT_CHARS: usize = 300` near the top of the module (alongside `MAX_DISMISSALS` and `MAX_EXEMPLARS`) to make the relationship between the three caps visible and to provide a single place to tune them together.'
+detectedAt: "2026-06-21T10:20:27.139Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.75
+history:
+- timestamp: "2026-06-21T10:20:27.139Z"
+  event: detected

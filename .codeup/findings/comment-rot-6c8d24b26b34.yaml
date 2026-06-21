@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: comment-rot-6c8d24b26b34
+category: comment-rot
+severity: low
+status: unconfirmed
+priority: low
+location:
+  file: crates/codeup/src/llm/retry.rs
+  line: 43
+  endLine: 45
+  contentHash: f2c45e9e5eef0b33866d3127af03d401638ec5eb9f28a5c3107764fe8ea248a4
+explanation: 'The doc-comment for `backoff_seconds` says "2, 4, 8, 16, 32" (attempt 1..5), which is correct, but the comment also says the policy is "exponential backoff (2s, 4s, 8s, 16s, 32s)" in the module-level doc at line 13. However, `backoff_seconds(attempt)` computes `1u64 << attempt`, which for attempt=1 gives 2, attempt=2 gives 4, etc. — the values are right. The subtle rot is that the module header (line 14) describes the sequence as starting at "2s" for the first retry, but the function is 1-indexed and named "attempt N (1-indexed)". In the callers (anthropic.rs, github_models.rs) `attempt` starts at 1 and is incremented *before* the retry sleep, so attempt=1 on the first retry yields `1<<1 = 2`. This matches. The actual comment rot is on line 43: the doc says "1-indexed" but the *name* of the parameter is `attempt` with no mention that it''s the attempt count, not the retry count (attempt 1 = first try = no backoff needed, yet 2s is returned). A caller passing `attempt=0` for "zero retries done" would get 1s rather than 2s — the 1-indexed contract is not enforced by the type system, and the comment documents an assumed calling convention that differs from what the name implies.'
+suggestedRemediation: 'Rename the parameter to `retry_number` or `retry_index` (1-based) and add a note clarifying it is the retry ordinal (1 = first retry), not the attempt ordinal. Alternatively, change the signature to accept a 0-based retry count and shift internally: `1u64 << (retry + 1)`, making the calling convention unambiguous.'
+detectedAt: "2026-06-21T11:29:50.686Z"
+detectedBy: claude-sonnet-4-6
+confidence: 0.5
+history:
+- timestamp: "2026-06-21T11:29:50.686Z"
+  event: detected
