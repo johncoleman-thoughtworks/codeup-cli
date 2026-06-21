@@ -21,7 +21,7 @@ Given a workspace root, codeup-cli walks the source, builds a dependency graph, 
 
 See [`crates/codeup-core/resources/default.yaml`](crates/codeup-core/resources/default.yaml) for the full pattern list. The catalogue is byte-identical to the VS Code extension's.
 
-Output goes to one of three formats: a human-readable text summary (default), SARIF 2.1.0 for GitHub Code Scanning, or raw findings JSON.
+Output goes to one of three formats: a human-readable text summary (default), SARIF 2.1.0 for GitHub Code Scanning, or raw findings JSON. Pass `--grade-summary` to also emit a markdown quality-grade card (A–D) suitable for GitHub Job Summaries.
 
 ## Why a Rust CLI
 
@@ -71,6 +71,9 @@ codeup scan .
 
 # Skip the LLM pass entirely — deterministic checks only
 codeup scan . --deterministic-only
+
+# SARIF for Code Scanning + grade card written to grade.md
+codeup scan . --out sarif --output codeup.sarif --grade-summary grade.md
 ```
 
 ## Configuration
@@ -99,6 +102,7 @@ All settings can be passed as flags or environment variables:
 | `--model` | `CODEUP_MODEL` | `claude-sonnet-4-6` (Anthropic) or `openai/gpt-4o-mini` (GH Models) | Must be a valid model id for the active provider. |
 | `--out` | — | `text` | `text`, `sarif`, or `json`. |
 | `--output` | — | stdout | File path. When set, writes the formatted report to file instead of stdout. |
+| `--grade-summary` | — | — | Write a markdown quality-grade card (A–D) to this file. Pass `-` to write to stdout. See [Grade summary](#grade-summary). |
 | `--deterministic-only` | — | `false` | Skip the LLM pass; cycles + layer violations + oversized only. |
 | `--max-cost` | — | `5.0` | Soft USD budget — the scan prompts before exceeding it on local runs. |
 | `--fail-on` | — | `high` | Exit non-zero when any open finding ≥ this severity. `low`, `medium`, `high`, or `none`. |
@@ -194,7 +198,12 @@ jobs:
           ./target/release/codeup scan . \
             --out sarif \
             --output codeup.sarif \
+            --grade-summary grade.md \
             --fail-on none
+
+      - name: Write grade to job summary
+        if: always()
+        run: cat grade.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -248,11 +257,11 @@ Free-tier quotas vary by model — `openai/gpt-4o-mini` and the smaller models h
 
 ### Choosing a model for CI
 
-The default `claude-sonnet-4-6` is excellent but burns through Tier-1 Anthropic rate limits (30k input tokens/min) on workspaces above ~10 files. For CI:
+Codeup requires **Sonnet-class reasoning or better** to keep the false-positive rate acceptable. Haiku produces fabrications and overreach findings at a rate that makes the output unreliable. The retry-on-429 loop handles Anthropic Tier-1 rate-limit pressure automatically.
 
 | Provider | Suggested model | Why |
 |---|---|---|
-| Anthropic | `claude-haiku-4-5` | Higher per-tier caps, ~3× cheaper, easily handles the analyzer's single-file tool-use task. |
+| Anthropic | `claude-sonnet-4-6` (default) | Required quality floor — Haiku false-positive rate is too high for catalogue analysis. |
 | GitHub Models | `openai/gpt-4o-mini` (default) | Free-tier friendly, reliable tool-use. |
 
 Set via env:
@@ -261,7 +270,7 @@ Set via env:
 - name: Scan
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    CODEUP_MODEL: claude-haiku-4-5
+    CODEUP_MODEL: claude-sonnet-4-6
   run: ./target/release/codeup scan . --out sarif --output codeup.sarif --fail-on none
 ```
 
@@ -312,6 +321,41 @@ Total findings : 40
 ### JSON
 
 Raw findings as a JSON array, suitable for piping into `jq` or a downstream tool that doesn't speak SARIF.
+
+### Grade summary
+
+`--grade-summary <path>` writes a markdown quality-grade card alongside the main report. Pass `-` to write to stdout.
+
+**Grade definition** — based on all active (unconfirmed or confirmed) findings; dismissed and fixed are excluded:
+
+| Grade | Condition |
+|---|---|
+| **A** ✅ | No active findings |
+| **B** 🟡 | Active findings exist, all are `low` severity |
+| **C** 🟠 | Active findings exist, none are `high` severity |
+| **D** ❌ | Any active finding is `high` severity |
+
+Example output:
+
+```markdown
+## Codeup quality grade: A ✅
+
+| Severity | Unconfirmed | Confirmed | Dismissed | Fixed |
+|----------|-------------|-----------|-----------|-------|
+| high     | 0           | 0         | 1         | 0     |
+| medium   | 0           | 0         | 0         | 2     |
+| low      | 0           | 0         | 0         | 0     |
+
+_Scan: 2026-06-21T14:03:00.000Z · 42 files · provider: anthropic/claude-sonnet-4-6_
+```
+
+In GitHub Actions, append the file to `$GITHUB_STEP_SUMMARY` and the grade card appears under **Actions → job → Summary** for every run — visible directly on PRs without any extra permissions:
+
+```yaml
+- name: Write grade to job summary
+  if: always()
+  run: cat grade.md >> "$GITHUB_STEP_SUMMARY"
+```
 
 ## Layout
 

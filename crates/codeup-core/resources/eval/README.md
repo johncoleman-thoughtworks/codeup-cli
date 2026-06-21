@@ -8,7 +8,7 @@ whether a wording change moves precision up or down.
 ## The labelled set
 
 `self-scan.jsonl` — one row per finding from a baseline scan of
-`crates/` with `--model claude-haiku-4-5`. Each row:
+`crates/` with `--model claude-sonnet-4-6`. Each row:
 
 ```json
 {
@@ -34,9 +34,9 @@ Label meanings:
   enums that ARE the wire contract.
 - **`fabrication`** — the model hallucinated code that does not
   exist at the cited location. Different from overreach: a tuned
-  catalogue won't help; this is a model-quality issue (likely Haiku
-  vs. Sonnet). Tracking these separately tells us whether the noise
-  source is the catalogue or the model.
+  catalogue won't help; this is a model-quality issue. Tracking these
+  separately tells us whether the noise source is the catalogue or
+  the model.
 - **`needs_review`** — author wasn't confident enough to label;
   someone with deeper context on that file should verify.
 
@@ -49,7 +49,7 @@ scripts/eval-catalogue.sh
 The script:
 
 1. Wipes `.codeup/cache/` so cached judgements don't pollute the run.
-2. Runs `codeup scan crates --model claude-haiku-4-5 --out json` with
+2. Runs `codeup scan crates --model claude-sonnet-4-6 --out json` with
    the API key from the environment.
 3. Joins the new findings against `self-scan.jsonl` on
    `(file, category)` — line numbers drift across refactors, so we

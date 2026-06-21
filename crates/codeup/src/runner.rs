@@ -33,6 +33,8 @@ pub struct RunSummary {
     pub llm_files_scanned: usize,
     pub llm_files_cached: usize,
     pub llm_files_skipped: usize,
+    pub scanned_at: String,
+    pub provider_label: Option<String>,
 }
 
 pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
@@ -161,6 +163,10 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
         // upstream rather than delete here.
     }
 
+    let provider_label = opts.client.map(|c| {
+        format!("{}/{}", c.provider().as_str(), c.model())
+    });
+
     Ok(RunSummary {
         root: opts.root.to_path_buf(),
         index,
@@ -176,6 +182,8 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
         llm_files_scanned,
         llm_files_cached,
         llm_files_skipped,
+        scanned_at: opts.now.to_string(),
+        provider_label,
     })
 }
 

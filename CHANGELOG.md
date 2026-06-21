@@ -6,9 +6,16 @@ All notable changes to the Codeup CLI are documented here. Format follows
 
 ## Unreleased
 
+## 0.3.0 — 2026-06-21
+
 ### Added
 
+- **Quality grade summary (`--grade-summary <path>`).** Emits a markdown grade card (A–D) alongside any other output format. Grade is computed from all active (unconfirmed or confirmed) findings: A = none, B = low-only, C = no high, D = any high. Dismissed and fixed findings are excluded. Pass `-` to write to stdout. The dogfood CI workflow writes the card to `$GITHUB_STEP_SUMMARY` so a lettered grade appears under **Actions → job → Summary** on every PR and push.
 - **Catalogue eval harness** (`scripts/eval-catalogue.sh` + `crates/codeup-core/resources/eval/self-scan.jsonl`). Labelled baseline of 61 findings from running codeup against its own source, joined against a re-scan on `(file, category)` to track `agreed_TP / agreed_FP / new_finding / missed_TP`. Catalogue tuning PRs gate on `missed_TP == 0` so wording changes can't silently silence real findings.
+
+### Changed
+
+- **Minimum recommended model raised to Sonnet.** Haiku-class models produce an unacceptable false-positive rate (fabrications and overreach) for catalogue analysis. The CI dogfood workflow now uses `claude-sonnet-4-6`; the README documents Sonnet as the required quality floor. The default model in the binary was already `claude-sonnet-4-6` — this aligns CI and docs with that default.
 
 ## 0.2.1 — 2026-05-28
 

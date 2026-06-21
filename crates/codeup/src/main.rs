@@ -2,6 +2,7 @@
 
 mod analyzer;
 mod cache;
+mod grade;
 mod llm;
 mod runner;
 mod sarif;
@@ -69,7 +70,7 @@ struct ScanArgs {
     github_token: Option<String>,
 
     /// Model identifier passed to the active provider. Anthropic uses
-    /// names like `claude-sonnet-4-5` or `claude-haiku-4-5`; GitHub
+    /// names like `claude-sonnet-4-6` or `claude-opus-4-8`; GitHub
     /// Models ignores this and uses its own default. Leave unset to
     /// take the provider's default.
     #[arg(long, env = "CODEUP_MODEL")]
@@ -102,6 +103,13 @@ struct ScanArgs {
     /// while still surfacing findings via SARIF.
     #[arg(long, default_value = "high")]
     fail_on: String,
+
+    /// Write a markdown quality-grade summary (A/B/C/D) to this file.
+    /// Pass `-` to write to stdout alongside the main report.
+    /// The grade is computed from all active (unconfirmed/confirmed)
+    /// findings, ignoring dismissed and fixed ones.
+    #[arg(long)]
+    grade_summary: Option<std::path::PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -185,6 +193,23 @@ async fn scan(args: ScanArgs) -> Result<()> {
         std::fs::write(path, &report).with_context(|| format!("writing {path:?}"))?;
     } else {
         println!("{report}");
+    }
+
+    if let Some(grade_path) = &args.grade_summary {
+        let grade_md = grade::render_markdown(&grade::compute(
+            &summary.findings,
+            grade::ScanMeta {
+                scanned_at: summary.scanned_at.clone(),
+                file_count: summary.index.files.len(),
+                provider_label: summary.provider_label.clone(),
+            },
+        ));
+        if grade_path == std::path::Path::new("-") {
+            println!("{grade_md}");
+        } else {
+            std::fs::write(grade_path, &grade_md)
+                .with_context(|| format!("writing grade summary to {grade_path:?}"))?;
+        }
     }
 
     // --fail-on threshold (default "high"): exit 1 if any open finding ≥ threshold

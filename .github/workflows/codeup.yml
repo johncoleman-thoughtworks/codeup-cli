@@ -66,12 +66,10 @@ jobs:
       # Both env vars are wired here; the CLI picks the first one with
       # a value.
       #
-      # Model: Haiku for the dogfood loop. Sonnet hits the Tier-1
-      # 30k-input-tokens-per-minute org cap on a workspace of this size
-      # and forces the retry-on-429 loop to do most of the work — Haiku
-      # has much higher per-tier caps, costs less, and the analyzer's
-      # task (single-file tool-use) is well within its capability. Drop
-      # this override once the org tier auto-bumps.
+      # Model: Sonnet for the dogfood loop. Haiku produces an unacceptable
+      # false-positive rate for catalogue analysis — fabrications and
+      # overreach findings that Sonnet correctly avoids. The retry-on-429
+      # loop handles Tier-1 rate-limit pressure (30k input tokens/min).
       # CODEUP_MODEL only applies when Anthropic is the active provider;
       # the GH Models fallback ignores it and uses its own default.
       #
@@ -110,7 +108,7 @@ jobs:
           # model unset so its own default (openai/gpt-4o-mini) is used.
           MODEL_FLAG=""
           if [ "$PROVIDER" != "github-models" ] && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-            MODEL_FLAG="--model claude-haiku-4-5"
+            MODEL_FLAG="--model claude-sonnet-4-6"
           fi
 
           ./target/release/codeup scan . \
@@ -119,7 +117,12 @@ jobs:
             $MODEL_FLAG \
             --out sarif \
             --output codeup.sarif \
+            --grade-summary grade.md \
             --fail-on none
+
+      - name: Write grade to job summary
+        if: always()
+        run: cat grade.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
