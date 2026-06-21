@@ -63,6 +63,12 @@ jobs:
     timeout-minutes: 45
 
     steps:
+      - name: Validate tag input
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "${{ inputs.tag }}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::tag must match vX.Y.Z, got: ${{ inputs.tag }}"; exit 1; }
+
       # Build the exact ref being released. On tag push that's the tag; on
       # manual dispatch it's the `tag` input (so the fixed pipeline on a
       # branch can still build and publish a previously-cut tag).
@@ -117,6 +123,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Validate tag input
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "${{ inputs.tag }}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::tag must match vX.Y.Z, got: ${{ inputs.tag }}"; exit 1; }
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref_name }}

@@ -1,0 +1,42 @@
+schemaVersion: 1
+entries:
+  - schemaVersion: 1
+    id: dismiss-install-sh-cohosted-sha256
+    category: external-artifact-without-integrity-verification
+    filePathPattern: scripts/install.sh
+    rationale: >
+      The SHA-256 sidecar is co-hosted on GitHub Releases (same origin as the
+      binary), which does not defend against a fully compromised release origin.
+      This is a known limitation. Minisign-based out-of-band verification is
+      tracked as future work for v0.4. The prebuilt path already verifies the
+      checksum when present; the source path now hard-fails on 'latest' and
+      requires gpg for tagged builds.
+    dismissedAt: "2026-06-21T00:00:00Z"
+    dismissedBy: john.coleman@thoughtworks.com
+    originalFindingId: external-artifact-without-integrity-verification-install-sh-168
+
+  - schemaVersion: 1
+    id: dismiss-sync-catalogue-sh-raw-fetch
+    category: external-artifact-without-integrity-verification
+    filePathPattern: scripts/sync-catalogue.sh
+    rationale: >
+      Developer-only tooling script used to pull the upstream catalogue into
+      the repo for review and editing. It is never executed in the installer
+      or user-facing paths. HTTPS-only fetch from github.com raw; the fetched
+      file is committed under version control and reviewed before use.
+    dismissedAt: "2026-06-21T00:00:00Z"
+    dismissedBy: john.coleman@thoughtworks.com
+    originalFindingId: external-artifact-without-integrity-verification-sync-catalogue-sh-22
+
+  - schemaVersion: 1
+    id: dismiss-eval-catalogue-sh-local-binary
+    category: external-artifact-without-integrity-verification
+    filePathPattern: scripts/eval-catalogue.sh
+    rationale: >
+      Developer-only regression harness. The codeup binary it executes is
+      either locally compiled from source (target/release/codeup) or already
+      installed on the developer's machine — not downloaded at runtime.
+      Signing a locally compiled build artifact is out of scope.
+    dismissedAt: "2026-06-21T00:00:00Z"
+    dismissedBy: john.coleman@thoughtworks.com
+    originalFindingId: external-artifact-without-integrity-verification-eval-catalogue-sh-34

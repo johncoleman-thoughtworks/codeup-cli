@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+const VALID_SEVERITIES: &[&str] = &["high", "medium", "low"];
+
 const ENTRIES_REL: &str = ".codeup/cache/entries";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +32,26 @@ pub struct ReportedFinding {
     pub confidence: f32,
 }
 
+fn validate_cache_entry(entry: &CacheEntry, path: &std::path::Path) -> Result<()> {
+    for f in &entry.findings {
+        if !VALID_SEVERITIES.contains(&f.severity.as_str()) {
+            anyhow::bail!("cache entry {path:?}: invalid severity {:?}", f.severity);
+        }
+        if !(0.0..=1.0).contains(&f.confidence) {
+            anyhow::bail!("cache entry {path:?}: confidence {} out of [0,1]", f.confidence);
+        }
+        if f.line == 0 {
+            anyhow::bail!("cache entry {path:?}: line must be > 0");
+        }
+        if f.category.is_empty()
+            || !f.category.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+        {
+            anyhow::bail!("cache entry {path:?}: invalid category {:?}", f.category);
+        }
+    }
+    Ok(())
+}
+
 pub struct AnalysisCache {
     root: PathBuf,
 }
@@ -46,8 +68,9 @@ impl AnalysisCache {
         }
         let bytes = std::fs::read(&path)
             .with_context(|| format!("reading cache entry {path:?}"))?;
-        let entry = serde_json::from_slice(&bytes)
+        let entry: CacheEntry = serde_json::from_slice(&bytes)
             .with_context(|| format!("parsing cache entry {path:?}"))?;
+        validate_cache_entry(&entry, &path)?;
         Ok(Some(entry))
     }
 

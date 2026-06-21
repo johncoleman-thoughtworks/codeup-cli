@@ -9,6 +9,7 @@ use globset::GlobBuilder;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use tracing::warn;
 
 pub const MAX_DISMISSALS: usize = 3;
 pub const MAX_EXEMPLARS: usize = 3;
@@ -179,7 +180,10 @@ pub fn matches_glob(file_path: &str, pattern: &str) -> bool {
     // does NOT cross `/` boundaries; only `**` does.
     match GlobBuilder::new(pattern).literal_separator(true).build() {
         Ok(g) => g.compile_matcher().is_match(file_path),
-        Err(_) => false,
+        Err(e) => {
+            warn!("invalid glob pattern {pattern:?}: {e} — dismissal will never match");
+            false
+        }
     }
 }
 
