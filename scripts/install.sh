@@ -195,7 +195,8 @@ install_prebuilt() {
   fi
   log "Downloading $asset from $base"
   fetch "$base/$asset"        "$TMP/$asset"        || return 1
-  fetch "$base/$asset.sha256" "$TMP/$asset.sha256" || log "(no checksum sidecar; skipping verification)"
+  fetch "$base/$asset.sha256" "$TMP/$asset.sha256" \
+    || die "checksum file not found for $asset — cannot verify integrity (use --from-source to build from a signed tag)"
 
   if [ -s "$TMP/$asset.sha256" ]; then
     expected=$(awk '{print $1}' "$TMP/$asset.sha256")
@@ -205,6 +206,8 @@ install_prebuilt() {
     fi
     [ "$expected" = "$actual" ] || die "checksum mismatch for $asset (expected $expected, got $actual)"
     log "Checksum OK."
+  else
+    die "checksum file for $asset is empty — cannot verify integrity"
   fi
 
   tar -xzf "$TMP/$asset" -C "$TMP" || die "failed to extract $asset"
