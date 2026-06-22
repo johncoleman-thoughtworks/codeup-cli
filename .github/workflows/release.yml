@@ -36,6 +36,11 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    env:
+      # Resolved once at job level — run: steps use $RELEASE_TAG (an env var)
+      # rather than ${{ inputs.tag }} (direct expression interpolation) to
+      # prevent shell injection from a workflow_dispatch caller.
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -65,9 +70,18 @@ jobs:
     steps:
       - name: Validate tag input
         if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ inputs.tag }}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::tag must match vX.Y.Z, got: ${{ inputs.tag }}"; exit 1; }
+          # Validate format using the env var, not a direct expression
+          # interpolation, to prevent shell injection.
+          echo "$RELEASE_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::tag must match vX.Y.Z, got: $RELEASE_TAG"; exit 1; }
+          # Verify the tag exists in the repository before using it as a
+          # checkout ref or release target.
+          gh api "repos/${{ github.repository }}/git/refs/tags/$RELEASE_TAG" \
+            --silent >/dev/null \
+            || { echo "::error::tag $RELEASE_TAG not found in repository"; exit 1; }
 
       # Build the exact ref being released. On tag push that's the tag; on
       # manual dispatch it's the `tag` input (so the fixed pipeline on a
@@ -122,12 +136,19 @@ jobs:
     name: publish release
     needs: build
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Validate tag input
         if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ inputs.tag }}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::tag must match vX.Y.Z, got: ${{ inputs.tag }}"; exit 1; }
+          echo "$RELEASE_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::tag must match vX.Y.Z, got: $RELEASE_TAG"; exit 1; }
+          gh api "repos/${{ github.repository }}/git/refs/tags/$RELEASE_TAG" \
+            --silent >/dev/null \
+            || { echo "::error::tag $RELEASE_TAG not found in repository"; exit 1; }
 
       - uses: actions/checkout@v4
         with:
