@@ -165,11 +165,18 @@ impl KnowledgeSnapshot {
 }
 
 /// Find dismissal and exemplar entries relevant to analyzing `file_path`.
+///
+/// Validates each entry before use — this is defense-in-depth so callers
+/// that populate `KnowledgeSnapshot` without going through `load_knowledge`
+/// (e.g. the MCP server or tests) cannot bypass structural field checks.
 pub fn relevant_for(file_path: &str, snapshot: &KnowledgeSnapshot) -> RelevantKnowledge {
     let mut dismissals: Vec<DismissalEntry> = snapshot
         .dismissals
         .iter()
-        .filter(|d| matches_glob(file_path, &d.file_path_pattern))
+        .filter(|d| match d.validate() {
+            Err(e) => { warn!("dismissal {:?} invalid in relevant_for — skipping: {e}", d.id); false }
+            Ok(()) => matches_glob(file_path, &d.file_path_pattern),
+        })
         .cloned()
         .collect();
     dismissals = dedupe_by_category(dismissals, MAX_DISMISSALS, |d| d.category.clone());
@@ -178,6 +185,10 @@ pub fn relevant_for(file_path: &str, snapshot: &KnowledgeSnapshot) -> RelevantKn
     let mut exemplars: Vec<(i32, ExemplarEntry)> = snapshot
         .exemplars
         .iter()
+        .filter(|e| match e.validate() {
+            Err(err) => { warn!("exemplar {:?} invalid in relevant_for — skipping: {err}", e.id); false }
+            Ok(()) => true,
+        })
         .map(|e| (directory_proximity(&file_dir, &parent_dir(&e.file_path)), e.clone()))
         .collect();
     exemplars.sort_by(|a, b| b.0.cmp(&a.0));
