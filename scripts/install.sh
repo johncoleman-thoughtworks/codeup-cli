@@ -248,10 +248,7 @@ install_from_source() {
 if [ "$FROM_SOURCE" -eq 1 ]; then
   install_from_source
 else
-  install_prebuilt || {
-    err "warning: prebuilt install failed — falling back to unverified source build"
-    install_from_source
-  }
+  install_prebuilt || die "prebuilt install failed — re-run with --from-source to build from source instead"
 fi
 
 # ---- PATH handling ----------------------------------------------------------

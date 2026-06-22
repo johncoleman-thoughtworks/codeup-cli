@@ -40,3 +40,19 @@ entries:
     dismissedAt: "2026-06-21T00:00:00Z"
     dismissedBy: john.coleman@thoughtworks.com
     originalFindingId: external-artifact-without-integrity-verification-eval-catalogue-sh-34
+
+  - schemaVersion: 1
+    id: dismiss-knowledge-rs-cryptographic-attestation
+    category: persisted-state-treated-as-authoritative
+    filePathPattern: crates/codeup-core/src/knowledge.rs
+    rationale: >
+      Structural validation (non-empty fields, length limits, safe character
+      sets, no path traversal) is enforced at both load time and at point of
+      use in relevant_for. Cryptographic attestation (signatures or MACs
+      proving the author is a privileged principal) is out of scope for this
+      tool — the trust model relies on dismissals.yaml being committed to git
+      and reviewed by maintainers through the normal pull-request process,
+      which provides the equivalent access control guarantee.
+    dismissedAt: "2026-06-22T00:00:00Z"
+    dismissedBy: john.coleman@thoughtworks.com
+    originalFindingId: persisted-state-treated-as-authoritative-knowledge-rs-152
