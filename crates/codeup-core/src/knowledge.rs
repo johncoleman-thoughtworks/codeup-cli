@@ -31,6 +31,31 @@ pub struct DismissalEntry {
     pub original_finding_id: String,
 }
 
+impl DismissalEntry {
+    /// Validate structural constraints on all fields before the entry is
+    /// trusted for finding suppression. Category format is checked here;
+    /// callers must additionally verify the category exists in the active
+    /// catalogue (requires external context not available in this module).
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty() {
+            return Err("id must not be empty".into());
+        }
+        if self.category.is_empty()
+            || !self.category.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+        {
+            return Err(format!("invalid category {:?}: must match [a-z-]+", self.category));
+        }
+        let pat = &self.file_path_pattern;
+        if pat.is_empty() || pat.len() > 512 || pat.contains('\0') || pat.contains("..") {
+            return Err(format!("invalid filePathPattern {:?}", pat));
+        }
+        if self.rationale.is_empty() || self.rationale.len() > 2048 {
+            return Err("rationale must be between 1 and 2048 chars".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExemplarEntry {
     #[serde(rename = "schemaVersion")]
@@ -46,6 +71,29 @@ pub struct ExemplarEntry {
     pub confirmed_by: String,
     #[serde(rename = "originalFindingId")]
     pub original_finding_id: String,
+}
+
+impl ExemplarEntry {
+    /// Validate structural constraints on all fields before the entry is
+    /// trusted for prompt construction. Same contract as DismissalEntry::validate.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.is_empty() {
+            return Err("id must not be empty".into());
+        }
+        if self.category.is_empty()
+            || !self.category.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+        {
+            return Err(format!("invalid category {:?}: must match [a-z-]+", self.category));
+        }
+        let fp = &self.file_path;
+        if fp.is_empty() || fp.len() > 512 || fp.contains('\0') || fp.contains("..") {
+            return Err(format!("invalid filePath {:?}", fp));
+        }
+        if self.excerpt.is_empty() || self.excerpt.len() > 4096 {
+            return Err("excerpt must be between 1 and 4096 chars".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -337,5 +385,40 @@ mod tests {
         assert!(out.contains("tests can be long"));
         assert!(out.contains("Patterns confirmed as real instances"));
         assert!(out.contains("classic case"));
+    }
+
+    #[test]
+    fn dismissal_validate_accepts_well_formed() {
+        assert!(dismissal("long-method", "src/test/**", "tests are long").validate().is_ok());
+    }
+
+    #[test]
+    fn dismissal_validate_rejects_empty_category() {
+        assert!(dismissal("", "src/**", "r").validate().is_err());
+    }
+
+    #[test]
+    fn dismissal_validate_rejects_path_traversal() {
+        assert!(dismissal("long-method", "../etc/passwd", "r").validate().is_err());
+    }
+
+    #[test]
+    fn dismissal_validate_rejects_null_byte_in_pattern() {
+        assert!(dismissal("long-method", "src/\0foo", "r").validate().is_err());
+    }
+
+    #[test]
+    fn dismissal_validate_rejects_empty_rationale() {
+        assert!(dismissal("long-method", "src/**", "").validate().is_err());
+    }
+
+    #[test]
+    fn exemplar_validate_accepts_well_formed() {
+        assert!(exemplar("long-method", "src/Foo.java", "excerpt").validate().is_ok());
+    }
+
+    #[test]
+    fn exemplar_validate_rejects_path_traversal() {
+        assert!(exemplar("long-method", "../etc/shadow", "excerpt").validate().is_err());
     }
 }

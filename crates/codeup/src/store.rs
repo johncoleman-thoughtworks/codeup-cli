@@ -552,20 +552,32 @@ history:\n\
 
 pub fn load_knowledge(root: &Path) -> Result<(KnowledgeSnapshot, Vec<CataloguePattern>)> {
     let dir = root.join(KNOWLEDGE_REL);
-    let dismissals = read_yaml_with_migration::<DismissalsFile>(
+    let dismissals: Vec<_> = read_yaml_with_migration::<DismissalsFile>(
         &dir.join("dismissals.yaml"),
         DISMISSAL_CURRENT_VERSION,
         DISMISSAL_MIGRATIONS,
     )?
     .map(|f| f.entries)
-    .unwrap_or_default();
-    let exemplars = read_yaml_with_migration::<ExemplarsFile>(
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|d| match d.validate() {
+        Ok(()) => true,
+        Err(e) => { tracing::warn!("dismissal {:?} failed validation — ignoring: {e}", d.id); false }
+    })
+    .collect();
+    let exemplars: Vec<_> = read_yaml_with_migration::<ExemplarsFile>(
         &dir.join("exemplars.yaml"),
         EXEMPLAR_CURRENT_VERSION,
         EXEMPLAR_MIGRATIONS,
     )?
     .map(|f| f.entries)
-    .unwrap_or_default();
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|e| match e.validate() {
+        Ok(()) => true,
+        Err(err) => { tracing::warn!("exemplar {:?} failed validation — ignoring: {err}", e.id); false }
+    })
+    .collect();
     let custom_patterns = read_yaml_with_migration::<CustomPatternsFile>(
         &dir.join("patterns.yaml"),
         CUSTOM_PATTERNS_CURRENT_VERSION,

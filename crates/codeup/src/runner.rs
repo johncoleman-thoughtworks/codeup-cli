@@ -74,35 +74,10 @@ pub async fn run(opts: RunOptions<'_>) -> Result<RunSummary> {
             }
         });
 
-        // Validate path fields — reject entries with null bytes, path-traversal
-        // sequences, empty strings, or suspiciously long values before they
-        // reach the glob matcher or the LLM prompt.
-        let is_safe_path = |s: &str| {
-            !s.is_empty() && s.len() <= 512 && !s.contains('\0') && !s.contains("..")
-        };
-        knowledge.dismissals.retain(|d| {
-            if is_safe_path(&d.file_path_pattern) {
-                true
-            } else {
-                tracing::warn!(
-                    "dismissal {:?} has invalid filePathPattern {:?} — ignoring",
-                    d.id, d.file_path_pattern
-                );
-                false
-            }
-        });
-        knowledge.exemplars.retain(|e| {
-            if is_safe_path(&e.file_path) {
-                true
-            } else {
-                tracing::warn!(
-                    "exemplar {:?} has invalid filePath {:?} — ignoring",
-                    e.id, e.file_path
-                );
-                false
-            }
-        });
-
+        // Structural field validation (null bytes, traversal, length) is
+        // performed earlier in load_knowledge via DismissalEntry::validate /
+        // ExemplarEntry::validate. This block adds the catalogue check that
+        // requires external context.
         for d in &knowledge.dismissals {
             if d.file_path_pattern == "**" || d.file_path_pattern == "**/*" {
                 tracing::warn!(
